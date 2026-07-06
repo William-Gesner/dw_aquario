@@ -37,7 +37,8 @@ TABELAS_DESTE_BLOCO = [
     "E028CPG",
     "E066FPG",
     "E073TRA",
-    "E120IPD"
+    "E120IPD",
+    "E120PED"
 ]
 
 
