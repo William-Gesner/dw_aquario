@@ -31,6 +31,7 @@ import warnings
 import pandas as pd
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.types import CLOB, DateTime, Integer, Numeric, String
 
 from core.dtype_map import build_dtype_map
 
@@ -239,13 +240,22 @@ def full_reload(
         }
 
     # ----- REMOÇÃO DA TABELA EXISTENTE -----
+    # IMPORTANTE: a verificação de existência é feita ANTES do DROP (via
+    # inspect().has_table), em vez de um "except Exception" genérico. Um
+    # except genérico mascararia QUALQUER falha no DROP (lock, permissão,
+    # timeout) como se fosse simplesmente "tabela não existe", e o fluxo
+    # seguiria para o to_sql(if_exists="append") gravando os dados novos POR
+    # CIMA dos antigos -- misturando registros já cancelados/obsoletos com
+    # os dados atuais (bug já visto no projeto legado, ver aquario/core/loader.py).
 
-    with engine.begin() as conn:
-        try:
+    insp = inspect(engine)
+
+    if insp.has_table(tabela, schema=schema):
+        with engine.begin() as conn:
             conn.execute(text(f"DROP TABLE {schema}.{tabela}"))
-            print(f"  Tabela {schema}.{tabela} removida.")
-        except Exception:
-            print(f"  Tabela {schema}.{tabela} não existia, será criada.")
+        print(f"  Tabela {schema}.{tabela} removida.")
+    else:
+        print(f"  Tabela {schema}.{tabela} não existia, será criada.")
 
     # ----- RECARGA COMPLETA -----
 
@@ -279,8 +289,146 @@ def full_reload(
     }
 
 
+def _dtype_map_da_origem(engine: Engine, owner_origem: str, tabela: str) -> dict:
+    """
+    Monta o dtype_map a partir da definição REAL das colunas na origem
+    (ALL_TAB_COLUMNS), em vez de inferir pelo conteúdo de uma amostra.
+
+    Por que não inferir por amostra (como build_dtype_map faz para a
+    Prata): se o maior valor de uma coluna de texto só aparecer fora da
+    amostra usada pra criar a tabela, o INSERT falha com ORA-12899 (valor
+    maior que a coluna) -- foi o que aconteceu com E120IPD.OBSIPD em
+    06/07/2026, usando só o 1º lote de 100 mil linhas como amostra.
+
+    Como a Bronze é cópia 1:1 da estrutura de origem ("mesma estrutura,
+    mesmo nome, sem transformação"), o tamanho de cada coluna de destino
+    deve ser IGUAL ao declarado na origem -- não estimado.
+    """
+    query = """
+        SELECT column_name, data_type, data_length, data_precision, data_scale
+        FROM ALL_TAB_COLUMNS
+        WHERE owner = :owner AND table_name = :tabela
+        ORDER BY column_id
+    """
+    with engine.connect() as conn:
+        colunas = conn.execute(
+            text(query), {"owner": owner_origem, "tabela": tabela}
+        ).fetchall()
+
+    if not colunas:
+        raise ValueError(
+            f"Nenhuma coluna encontrada para {owner_origem}.{tabela} em "
+            f"ALL_TAB_COLUMNS -- confira se o nome da tabela está correto "
+            f"e se o usuário de conexão tem privilégio de leitura nela."
+        )
+
+    dtype_map = {}
+
+    for coluna_nome, tipo, tamanho, precisao, escala in colunas:
+        nome = coluna_nome.upper()
+
+        if tipo == "NUMBER":
+            if escala in (0, None) and (precisao is None or precisao <= 18):
+                dtype_map[nome] = Integer()
+            else:
+                dtype_map[nome] = Numeric(precisao or 38, escala or 10)
+
+        elif tipo in ("DATE",) or tipo.startswith("TIMESTAMP"):
+            dtype_map[nome] = DateTime()
+
+        elif tipo in ("CLOB", "NCLOB", "LONG"):
+            dtype_map[nome] = CLOB()
+
+        elif tipo in ("VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR"):
+            if tamanho is None or tamanho > 4000:
+                dtype_map[nome] = CLOB()
+            else:
+                dtype_map[nome] = String(min(tamanho + 10, 4000))
+
+        else:
+            # Tipo não mapeado explicitamente (ex.: RAW, BLOB) -- fallback seguro.
+            dtype_map[nome] = String(4000)
+
+    return dtype_map
+
+
+def full_reload_streaming(
+    engine: Engine,
+    query: str,
+    schema: str,
+    tabela: str,
+    owner_origem: str = "SAPIENS",
+    chunksize: int = 100_000,
+) -> dict:
+    """
+    Full reload lendo a query em lotes direto do cursor Oracle, em vez de
+    montar a tabela inteira em um único DataFrame antes de gravar.
+
+    Usada nas tabelas grandes/transacionais da Bronze (ex.: E120IPD, com
+    1,4 milhão de linhas x 285 colunas -- um pd.read_sql() sem chunksize
+    estourou a memória do processo em 06/07/2026 tentando montar tudo de
+    uma vez antes mesmo de começar a gravar).
+
+    O dtype_map vem de _dtype_map_da_origem() -- schema REAL do Sapiens via
+    ALL_TAB_COLUMNS, não de uma amostra dos dados -- então não depende de
+    qual lote é lido primeiro nem corre risco de ORA-12899 por causa de um
+    valor de texto maior que o previsto.
+
+    Returns:
+        dict com chaves: linhas_extraidas, linhas_salvas
+    """
+    insp = inspect(engine)
+
+    if insp.has_table(tabela, schema=schema):
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE {schema}.{tabela}"))
+        print(f"  Tabela {schema}.{tabela} removida.")
+    else:
+        print(f"  Tabela {schema}.{tabela} não existia, será criada.")
+
+    dtype_map = _dtype_map_da_origem(engine, owner_origem, tabela)
+    linhas_extraidas = 0
+
+    with engine.connect() as conn:
+        for i, chunk in enumerate(pd.read_sql(text(query), conn, chunksize=chunksize), start=1):
+            chunk.columns = [col.upper() for col in chunk.columns]
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                chunk.to_sql(
+                    name=tabela.upper(),
+                    con=engine,
+                    schema=schema,
+                    if_exists="append",
+                    index=False,
+                    dtype=dtype_map,
+                )
+
+            linhas_extraidas += len(chunk)
+            print(f"  Lote {i:>3}: +{len(chunk):>8,} linhas (acumulado: {linhas_extraidas:>10,})")
+
+    if linhas_extraidas == 0:
+        print(f"  [AVISO] Nenhuma linha extraída para {schema}.{tabela}. Carga abortada.")
+        return {"linhas_extraidas": 0, "linhas_salvas": 0}
+
+    with engine.connect() as conn:
+        linhas_salvas = conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{tabela}")).scalar()
+
+    print(f"  Linhas salvas em {schema}.{tabela}   : {linhas_salvas:>10,}")
+
+    if linhas_salvas != linhas_extraidas:
+        print(f"  [AVISO] Divergência: extraídas={linhas_extraidas:,} | salvas={linhas_salvas:,}")
+    else:
+        print(f"  Extracao e carga conferem [OK]")
+
+    return {
+        "linhas_extraidas": linhas_extraidas,
+        "linhas_salvas": linhas_salvas,
+    }
+
+
 # ==================================================================
-# CAMADA BRONZE 
+# CAMADA BRONZE
 # ==================================================================
 #
 # REGRA DE CARGA DA BRONZE — vale para TODAS as 33 tabelas do catálogo
@@ -334,26 +482,28 @@ def tabela_tem_dados(engine: Engine, schema: str, tabela: str) -> bool:
 
 def carregar_bronze(
     engine: Engine,
-    df: pd.DataFrame,
     schema: str,
     tabela: str,
     query: str,
     chaves_pk: list[str],
     coluna_ordem: str | None = None,
-    dtype_map: dict | None = None,
-    chunksize: int = 10000,
+    chunksize: int = 100_000,
 ) -> dict:
     """
     Ponto de entrada único de carga para a camada Bronze.
 
-    Decide automaticamente entre full_reload() (1ª carga) e upsert()
-    (cargas seguintes, incremental com janela de 60 dias retroativos).
+    Decide automaticamente entre full_reload_streaming() (1ª carga) e
+    upsert() (cargas seguintes, incremental com janela de 60 dias
+    retroativos) -- e só lê do Sapiens DEPOIS de decidir qual caminho
+    seguir. Na 1ª carga, a leitura é feita em lotes direto do cursor
+    Oracle (full_reload_streaming), sem nunca montar a tabela inteira em
+    um único DataFrame -- necessário para tabelas grandes/transacionais
+    (ex.: E120IPD, 1,4 milhão de linhas x 285 colunas).
 
     Args:
-        query        : a MESMA query usada para extrair o df, já com o
-                       filtro correto (full ou janela de 60 dias) -- essa
-                       decisão é tomada previamente pelo chamador usando
-                       tabela_tem_dados().
+        query        : query de extração já com o filtro correto (full ou
+                       janela de 60 dias) -- essa decisão é tomada
+                       previamente pelo chamador usando tabela_tem_dados().
         chaves_pk    : PK real da tabela no Sapiens. Como a Bronze não
                        aplica nenhuma transformação, é a mesma PK física
                        de origem.
@@ -361,20 +511,25 @@ def carregar_bronze(
                        caso a janela de 60 dias traga o mesmo registro
                        mais de uma vez no MERGE. Se None, usa a primeira
                        coluna de chaves_pk.
+        chunksize    : tamanho do lote de leitura na 1ª carga (streaming).
 
     Returns:
-        dict no mesmo formato retornado por full_reload() ou upsert(),
-        dependendo de qual estratégia foi usada.
+        dict no mesmo formato retornado por full_reload_streaming() ou
+        upsert(), dependendo de qual estratégia foi usada.
     """
     primeira_carga = not tabela_tem_dados(engine, schema, tabela)
 
     if primeira_carga:
-        print(f"  [BRONZE] {schema}.{tabela}: 1ª carga -> FULL (sem filtro de data)")
-        return full_reload(
-            engine, df, schema, tabela, chunksize=chunksize, dtype_map=dtype_map
-        )
+        print(f"  [BRONZE] {schema}.{tabela}: 1ª carga -> FULL, lendo em lotes de {chunksize:,} linhas")
+        return full_reload_streaming(engine, query, schema, tabela, chunksize=chunksize)
 
     print(f"  [BRONZE] {schema}.{tabela}: carga incremental -> MERGE (janela de 60 dias)")
+
+    with engine.connect() as conn:
+        df = pd.read_sql(text(query), conn)
+    df.columns = [col.upper() for col in df.columns]
+    dtype_map = build_dtype_map(df)
+
     return upsert(
         engine,
         df,

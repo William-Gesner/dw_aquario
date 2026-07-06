@@ -1,5 +1,5 @@
 """
-Catálogo das 33 tabelas Sapiens que formam a camada Bronze do Comercial.
+Catálogo das 34 tabelas Sapiens que formam a camada Bronze do Comercial.
 
 Cada entrada descreve:
     tabela      : nome exato da tabela/view no Sapiens. Na Bronze, fica com o
@@ -340,6 +340,30 @@ TABELAS = [
         ),
     },
     {
+        "tabela": "R999USU",
+        "chaves_pk": ["CODUSU"],
+        "coluna_data": None,
+        "tem_codemp": False,
+        "tem_codfil": False,
+        "observacao": (
+            "Tabela de usuários do ERP (sistema Sapiens, prefixo R = tabela de "
+            "sistema, não de módulo). Usada por vbiregionais.py (legado) via "
+            "JOIN em USU_USUCOR/USU_USUASS de USU_T017RVR para obter nome de "
+            "coordenador/assistente da regional. Estava AUSENTE deste catálogo "
+            "até 06/07/2026 -- achada na auditoria de dependências dos 7 "
+            "scripts legados. "
+            "Validado via ALL_TAB_COLUMNS em 06/07/2026: não tem CODEMP/CODFIL "
+            "(tem NUMEMP e CODFIL, mas ambos VARCHAR2 -- convenção diferente da "
+            "usada nas demais tabelas de módulo, onde CODEMP/CODFIL são NUMBER). "
+            "tem_codemp e tem_codfil ficam False DE PROPÓSITO: o vbiregionais.py "
+            "legado faz o JOIN em R999USU sem nenhum filtro de empresa/filial, "
+            "pois precisa resolver o nome de QUALQUER usuário que apareça como "
+            "coordenador/assistente, independente da filial de cadastro dele -- "
+            "filtrar aqui faria coordenadores de outras filiais aparecerem como "
+            "'NÃO IDENTIFICADO' na Prata. Sem coluna de data -- full_reload sempre."
+        ),
+    },
+    {
         "tabela": "USU_V660SUB",
         "chaves_pk": None,
         "coluna_data": None,
@@ -355,7 +379,7 @@ TABELAS = [
 
 # ----- VALIDAÇÃO -----
 
-assert len(TABELAS) == 33, f"Esperado 33 tabelas no catálogo, encontrado {len(TABELAS)}"
+assert len(TABELAS) == 34, f"Esperado 34 tabelas no catálogo, encontrado {len(TABELAS)}"
 
 
 # ----- FUNÇÃO AUXILIAR -----

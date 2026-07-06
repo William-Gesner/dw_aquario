@@ -21,9 +21,6 @@ Para cada tabela:
 
 # ----- IMPORTS -----
 
-import pandas as pd
-from sqlalchemy import text
-
 from comercial.bronze.tabelas import TABELAS, buscar_tabela
 from comercial.config.settings import (
     CODEMP_AQUARIO,
@@ -32,7 +29,6 @@ from comercial.config.settings import (
     schema_bronze,
 )
 from core.db import get_engine
-from core.dtype_map import build_dtype_map
 from core.loader import carregar_bronze, tabela_tem_dados
 
 # ----- BLOCO ATUAL -----
@@ -40,7 +36,8 @@ from core.loader import carregar_bronze, tabela_tem_dados
 TABELAS_DESTE_BLOCO = [
     "E028CPG",
     "E066FPG",
-    "E073TRA"
+    "E073TRA",
+    "E120IPD"
 ]
 
 
@@ -101,23 +98,19 @@ def rodar_tabela(engine, nome_tabela: str) -> dict:
     print(f"{'='*60}")
     print(f"  Query: {query}")
 
-    with engine.connect() as conn:
-        df = pd.read_sql(text(query), conn)
-
-    df.columns = [col.upper() for col in df.columns]
-    dtype_map = build_dtype_map(df)
-
     coluna_ordem = info["coluna_data"] or info["chaves_pk"][0]
 
+    # A leitura do Sapiens acontece DENTRO de carregar_bronze(): na 1ª carga,
+    # em lotes (full_reload_streaming) para não estourar memória em tabelas
+    # grandes (ex.: E120IPD); nas cargas seguintes, via upsert() normal --
+    # a janela de 60 dias já mantém o volume pequeno o suficiente.
     resultado = carregar_bronze(
         engine,
-        df,
         schema_bronze,
         nome_tabela,
-        query=query,
+        query,
         chaves_pk=info["chaves_pk"],
         coluna_ordem=coluna_ordem,
-        dtype_map=dtype_map,
     )
 
     resultado["tabela"] = nome_tabela
