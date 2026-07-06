@@ -9,8 +9,9 @@ acontece na Prata.
 Para cada tabela:
     1. Verifica se ela já existe e tem dados na Bronze (tabela_tem_dados).
     2. Monta a query de extração:
-        - 1ª carga         -> SELECT * com filtro CODEMP = 1 (e CODFIL = 1,
-                              se a tabela tiver esse campo)
+        - 1ª carga         -> SELECT * com filtro CODEMP = 1 (se tem_codemp=True)
+                              e CODFIL = 1 (se tem_codfil=True).
+                              Tabelas globais (tem_codemp=False): sem filtro algum.
         - cargas seguintes -> idem + filtro coluna_data >= SYSDATE - 60
                               (só se a tabela tiver coluna_data no catálogo;
                               senão, continua sempre full)
@@ -23,7 +24,7 @@ Para cada tabela:
 import pandas as pd
 from sqlalchemy import text
 
-from comercial.bronze.tabelas import buscar_tabela
+from comercial.bronze.tabelas import TABELAS, buscar_tabela
 from comercial.config.settings import (
     CODEMP_AQUARIO,
     CODFIL_AQUARIO,
@@ -36,7 +37,12 @@ from core.loader import carregar_bronze, tabela_tem_dados
 
 # ----- BLOCO ATUAL -----
 
-TABELAS_DESTE_BLOCO = ["E028CPG", "E066FPG", "E073TRA"]
+TABELAS_DESTE_BLOCO = [
+    "E028CPG",
+    "E066FPG",
+    "E073TRA"
+]
+
 
 
 # ----- MONTAGEM DA QUERY -----
@@ -45,25 +51,36 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
     """
     Monta a query de extração no Sapiens para uma tabela do catálogo.
 
-    Sempre filtra CODEMP = 1. Filtra também CODFIL = 1 quando
-    info["tem_codfil"] = True. Na carga incremental (não é a 1ª carga
-    E a tabela tem coluna_data definida no catálogo), adiciona o filtro
-    de janela de 60 dias retroativos.
+    Respeita tem_codemp: tabelas globais (tem_codemp=False) não recebem
+    nenhum filtro de empresa. Para as demais, filtra CODEMP = 1 sempre,
+    e CODFIL = 1 quando tem_codfil = True.
+
+    Na carga incremental (não é a 1ª carga E a tabela tem coluna_data
+    definida no catálogo), adiciona o filtro de janela de 60 dias.
     """
     tabela = info["tabela"]
-    filtros = [f"CODEMP = {CODEMP_AQUARIO}"]
+    filtros = []
 
+    # Filtro de empresa — só para tabelas que têm CODEMP
+    if info["tem_codemp"]:
+        filtros.append(f"CODEMP = {CODEMP_AQUARIO}")
+
+    # Filtro de filial — só quando tem_codfil=True (implica tem_codemp=True)
     if info["tem_codfil"]:
         filtros.append(f"CODFIL = {CODFIL_AQUARIO}")
 
+    # Filtro incremental — só nas cargas seguintes à 1ª, e se houver coluna_data
     if not primeira_carga and info["coluna_data"]:
         filtros.append(
             f"{info['coluna_data']} >= SYSDATE - {JANELA_INCREMENTAL_DIAS}"
         )
 
-    where = " AND ".join(filtros)
-
-    return f"SELECT * FROM SAPIENS.{tabela} WHERE {where}"
+    if filtros:
+        where = " AND ".join(filtros)
+        return f"SELECT * FROM SAPIENS.{tabela} WHERE {where}"
+    else:
+        # Tabela global sem nenhum filtro (ex.: E073TRA, E085CLI, etc.)
+        return f"SELECT * FROM SAPIENS.{tabela}"
 
 
 # ----- EXTRAÇÃO E CARGA DE UMA TABELA -----
@@ -120,4 +137,6 @@ if __name__ == "__main__":
     print("  RESUMO DO BLOCO")
     print(f"{'#'*60}")
     for r in resultados:
-        print(f"  {r}")
+        status = r.get("status", "OK")
+        linhas = r.get("linhas_salvas", "-")
+        print(f"  {r['tabela']:<20} -> {status:<8} | linhas salvas: {linhas}")
