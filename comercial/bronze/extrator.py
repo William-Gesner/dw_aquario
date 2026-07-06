@@ -21,6 +21,8 @@ Para cada tabela:
 
 # ----- IMPORTS -----
 
+import traceback
+
 from comercial.bronze.tabelas import TABELAS, buscar_tabela
 from comercial.config.settings import (
     CODEMP_AQUARIO,
@@ -125,7 +127,14 @@ if __name__ == "__main__":
     resultados = []
 
     for nome in TABELAS_DESTE_BLOCO:
-        resultados.append(rodar_tabela(engine, nome))
+        try:
+            resultados.append(rodar_tabela(engine, nome))
+        except Exception:
+            # Uma tabela com erro não pode travar as demais do bloco --
+            # loga o erro completo (pra investigar depois) e segue pra próxima.
+            print(f"\n  [ERRO] Falha ao processar {nome}:")
+            traceback.print_exc()
+            resultados.append({"tabela": nome, "status": "ERRO"})
 
     print(f"\n{'#'*60}")
     print("  RESUMO DO BLOCO")
