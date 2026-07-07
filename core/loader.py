@@ -359,6 +359,7 @@ def full_reload_streaming(
     tabela: str,
     owner_origem: str = "SAPIENS",
     chunksize: int = 100_000,
+    engine_escrita: Engine | None = None,
 ) -> dict:
     """
     Full reload lendo a query em lotes direto do cursor Oracle, em vez de
@@ -374,13 +375,24 @@ def full_reload_streaming(
     qual lote é lido primeiro nem corre risco de ORA-12899 por causa de um
     valor de texto maior que o previsto.
 
+    Args:
+        engine         : engine de LEITURA (origem, ex.: SAPIENS).
+        engine_escrita : engine de ESCRITA (destino, Bronze). Se None,
+                         usa o mesmo `engine` (caso comum -- origem e
+                         destino no mesmo servidor físico, ex.: Comercial).
+                         Só precisa ser diferente quando origem e destino
+                         estão em servidores Oracle separados (ex.: OPEX,
+                         que lê da Controladoria e grava no servidor
+                         principal -- ver core/db.py get_engine_controladoria()).
+
     Returns:
         dict com chaves: linhas_extraidas, linhas_salvas
     """
-    insp = inspect(engine)
+    engine_escrita = engine_escrita or engine
+    insp = inspect(engine_escrita)
 
     if insp.has_table(tabela, schema=schema):
-        with engine.begin() as conn:
+        with engine_escrita.begin() as conn:
             conn.execute(text(f"DROP TABLE {schema}.{tabela}"))
         print(f"  Tabela {schema}.{tabela} removida.")
     else:
@@ -397,7 +409,7 @@ def full_reload_streaming(
                 warnings.simplefilter("ignore", UserWarning)
                 chunk.to_sql(
                     name=tabela.upper(),
-                    con=engine,
+                    con=engine_escrita,
                     schema=schema,
                     if_exists="append",
                     index=False,
@@ -411,7 +423,7 @@ def full_reload_streaming(
         print(f"  [AVISO] Nenhuma linha extraída para {schema}.{tabela}. Carga abortada.")
         return {"linhas_extraidas": 0, "linhas_salvas": 0}
 
-    with engine.connect() as conn:
+    with engine_escrita.connect() as conn:
         linhas_salvas = conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{tabela}")).scalar()
 
     print(f"  Linhas salvas em {schema}.{tabela}   : {linhas_salvas:>10,}")
@@ -548,6 +560,210 @@ WHERE NOT EXISTS (
     return linhas_removidas
 
 
+# ----- VARIANTES PARA ORIGEM E DESTINO EM SERVIDORES DIFERENTES -----
+#
+# upsert() e remover_orfaos() (acima) embutem a query/subquery de origem
+# DENTRO do MERGE/DELETE, executado inteiramente na conexão do destino --
+# só funciona quando origem e destino estão no MESMO servidor físico (ou
+# existe DB LINK entre eles). Sem DB LINK, uma subquery apontando pra
+# SAPIENS.tabela falha com "table or view does not exist" (ORA-00942) se
+# rodar numa conexão de um servidor onde essa tabela não existe.
+#
+# Caso do OPEX: lê do banco de Controladoria (servidor separado), grava no
+# servidor principal onde fica o DW_BRONZE -- sem DB LINK configurado
+# entre os dois (confirmado em 07/07/2026). As funções abaixo contornam
+# isso gravando os dados numa tabela de staging no DESTINO primeiro (via
+# pandas, mesma lógica que o script legado já usava), e rodando o MERGE/
+# DELETE inteiramente ali dentro -- sem nenhuma subquery remota.
+
+def upsert_cross_servidor(
+    engine_leitura: Engine,
+    engine_escrita: Engine,
+    query: str,
+    schema: str,
+    tabela: str,
+    chaves_merge: list[str],
+    coluna_ordem: str,
+) -> dict:
+    """
+    Variante de upsert() para quando origem e destino estão em servidores
+    Oracle diferentes (ver nota acima). Fluxo:
+        1. Lê a origem via engine_leitura para um DataFrame em memória.
+        2. Grava esse DataFrame numa tabela de staging no destino
+           (engine_escrita).
+        3. Roda o MERGE inteiramente no destino, usando a staging como
+           SRC -- sem subquery remota.
+        4. Remove a staging ao final (sucesso ou falha).
+
+    Returns:
+        dict com chaves: linhas_extraidas, linhas_inseridas,
+        linhas_atualizadas, linhas_salvas
+    """
+    with engine_leitura.connect() as conn:
+        df = pd.read_sql(text(query), conn)
+    df.columns = [col.upper() for col in df.columns]
+
+    linhas_extraidas = len(df)
+    print(f"  Linhas extraídas : {linhas_extraidas:>10,}")
+
+    if linhas_extraidas == 0:
+        print(f"  [AVISO] Nenhuma linha extraída para {schema}.{tabela}. Carga abortada.")
+        return {
+            "linhas_extraidas": 0,
+            "linhas_inseridas": 0,
+            "linhas_atualizadas": 0,
+            "linhas_salvas": 0,
+        }
+
+    dtype_map = build_dtype_map(df)
+    _ensure_table(engine_escrita, df, schema, tabela, dtype_map)
+
+    with engine_escrita.connect() as conn:
+        total_antes = conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{tabela}")).scalar()
+
+    staging = f"{tabela}_STG"
+    insp = inspect(engine_escrita)
+    if insp.has_table(staging, schema=schema):
+        with engine_escrita.begin() as conn:
+            conn.execute(text(f"DROP TABLE {schema}.{staging}"))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        df.to_sql(
+            name=staging.upper(),
+            con=engine_escrita,
+            schema=schema,
+            if_exists="fail",
+            index=False,
+            dtype=dtype_map,
+        )
+
+    try:
+        colunas        = list(df.columns)
+        colunas_update = [col for col in colunas if col not in chaves_merge]
+
+        condicao_merge = " AND ".join([f"DEST.{col} = SRC.{col}" for col in chaves_merge])
+        set_update     = ",\n        ".join([f"DEST.{col} = SRC.{col}" for col in colunas_update])
+        insert_cols    = ",\n        ".join(colunas)
+        insert_values  = ",\n        ".join([f"SRC.{col}" for col in colunas])
+        partition_by   = ",\n                    ".join(chaves_merge)
+
+        merge_sql = f"""
+MERGE INTO {schema}.{tabela} DEST
+USING (
+    SELECT
+        {", ".join(colunas)}
+    FROM (
+        SELECT
+            Q.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    {partition_by}
+                ORDER BY
+                    {coluna_ordem}
+            ) AS RN
+        FROM {schema}.{staging} Q
+    )
+    WHERE RN = 1
+) SRC
+ON (
+    {condicao_merge}
+)
+WHEN MATCHED THEN
+    UPDATE SET
+        {set_update}
+WHEN NOT MATCHED THEN
+    INSERT (
+        {insert_cols}
+    )
+    VALUES (
+        {insert_values}
+    )
+"""
+        with engine_escrita.begin() as conn:
+            conn.execute(text(merge_sql))
+    finally:
+        with engine_escrita.begin() as conn:
+            conn.execute(text(f"DROP TABLE {schema}.{staging}"))
+
+    with engine_escrita.connect() as conn:
+        total_depois = conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{tabela}")).scalar()
+
+    linhas_inseridas   = total_depois - total_antes
+    linhas_atualizadas = linhas_extraidas - linhas_inseridas
+    linhas_salvas      = linhas_inseridas + linhas_atualizadas
+
+    print(f"  Linhas inseridas (novas)    : {linhas_inseridas:>10,}")
+    print(f"  Linhas atualizadas          : {linhas_atualizadas:>10,}")
+    print(f"  Total salvo em {schema}.{tabela} : {linhas_salvas:>10,}")
+
+    return {
+        "linhas_extraidas": linhas_extraidas,
+        "linhas_inseridas": linhas_inseridas,
+        "linhas_atualizadas": linhas_atualizadas,
+        "linhas_salvas": linhas_salvas,
+    }
+
+
+def remover_orfaos_cross_servidor(
+    engine_leitura: Engine,
+    engine_escrita: Engine,
+    schema: str,
+    tabela: str,
+    chaves_pk: list[str],
+    query_pks_completo: str,
+) -> int:
+    """
+    Variante de remover_orfaos() para origem e destino em servidores
+    diferentes -- mesma lógica (só remove PK que não existe em lugar
+    nenhum do universo completo da origem), só que via staging no destino
+    em vez de subquery remota (ver nota no topo desta seção).
+    """
+    with engine_leitura.connect() as conn:
+        df_pks = pd.read_sql(text(query_pks_completo), conn)
+    df_pks.columns = [col.upper() for col in df_pks.columns]
+
+    staging = f"{tabela}_PKS_STG"
+    insp = inspect(engine_escrita)
+    if insp.has_table(staging, schema=schema):
+        with engine_escrita.begin() as conn:
+            conn.execute(text(f"DROP TABLE {schema}.{staging}"))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        df_pks.to_sql(
+            name=staging.upper(),
+            con=engine_escrita,
+            schema=schema,
+            if_exists="fail",
+            index=False,
+        )
+
+    condicao_merge = " AND ".join([f"DEST.{col} = SRC.{col}" for col in chaves_pk])
+
+    delete_sql = f"""
+DELETE FROM {schema}.{tabela} DEST
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM {schema}.{staging} SRC
+    WHERE {condicao_merge}
+)
+"""
+
+    try:
+        with engine_escrita.begin() as conn:
+            resultado = conn.execute(text(delete_sql))
+            linhas_removidas = resultado.rowcount or 0
+    finally:
+        with engine_escrita.begin() as conn:
+            conn.execute(text(f"DROP TABLE {schema}.{staging}"))
+
+    if linhas_removidas:
+        print(f"  [BRONZE] {schema}.{tabela}: {linhas_removidas} linha(s) removida(s) (órfã -- excluída na origem)")
+
+    return linhas_removidas
+
+
 # ----- CARGA DA CAMADA BRONZE -----
 
 def carregar_bronze(
@@ -559,6 +775,7 @@ def carregar_bronze(
     coluna_ordem: str | None = None,
     chunksize: int = 100_000,
     query_pks_completo: str | None = None,
+    engine_escrita: Engine | None = None,
 ) -> dict:
     """
     Ponto de entrada único de carga para a camada Bronze.
@@ -572,7 +789,8 @@ def carregar_bronze(
     (ex.: E120IPD, 1,4 milhão de linhas x 285 colunas).
 
     Args:
-        query              : query de extração já com o filtro correto
+        engine              : engine de LEITURA (origem, ex.: SAPIENS).
+        query                : query de extração já com o filtro correto
                              (full ou janela de 60 dias) -- essa decisão é
                              tomada previamente pelo chamador usando
                              tabela_tem_dados().
@@ -592,6 +810,17 @@ def carregar_bronze(
                              incremental, nunca na 1ª carga. Se None,
                              pula a remoção de órfãos (comportamento
                              anterior).
+        engine_escrita     : engine de ESCRITA (destino, Bronze). Se None,
+                             usa o mesmo `engine` (caso comum -- origem e
+                             destino no mesmo servidor físico, ex.:
+                             Comercial). Quando informado e DIFERENTE de
+                             `engine` (ex.: OPEX -- lê da Controladoria,
+                             grava no servidor principal, sem DB LINK
+                             entre eles), usa upsert_cross_servidor()/
+                             remover_orfaos_cross_servidor() em vez do
+                             MERGE/DELETE com subquery embutida -- ver a
+                             nota em "VARIANTES PARA ORIGEM E DESTINO EM
+                             SERVIDORES DIFERENTES" acima.
 
     Returns:
         dict no mesmo formato retornado por full_reload_streaming() ou
@@ -599,33 +828,51 @@ def carregar_bronze(
         incremental, ganha também a chave 'linhas_removidas' quando
         query_pks_completo é informado.
     """
-    primeira_carga = not tabela_tem_dados(engine, schema, tabela)
+    engine_escrita = engine_escrita or engine
+    mesmo_servidor = engine_escrita is engine
+
+    primeira_carga = not tabela_tem_dados(engine_escrita, schema, tabela)
 
     if primeira_carga:
         print(f"  [BRONZE] {schema}.{tabela}: 1ª carga -> FULL, lendo em lotes de {chunksize:,} linhas")
-        return full_reload_streaming(engine, query, schema, tabela, chunksize=chunksize)
+        return full_reload_streaming(
+            engine, query, schema, tabela, chunksize=chunksize, engine_escrita=engine_escrita
+        )
 
     print(f"  [BRONZE] {schema}.{tabela}: carga incremental -> MERGE (janela de 60 dias)")
 
-    with engine.connect() as conn:
-        df = pd.read_sql(text(query), conn)
-    df.columns = [col.upper() for col in df.columns]
-    dtype_map = build_dtype_map(df)
+    coluna_ordem = coluna_ordem or chaves_pk[0]
 
-    resultado = upsert(
-        engine,
-        df,
-        schema,
-        tabela,
-        query=query,
-        chaves_merge=chaves_pk,
-        coluna_ordem=coluna_ordem or chaves_pk[0],
-        dtype_map=dtype_map,
-    )
+    if mesmo_servidor:
+        with engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        df.columns = [col.upper() for col in df.columns]
+        dtype_map = build_dtype_map(df)
 
-    if query_pks_completo:
-        resultado["linhas_removidas"] = remover_orfaos(
-            engine, schema, tabela, chaves_pk, query_pks_completo
+        resultado = upsert(
+            engine,
+            df,
+            schema,
+            tabela,
+            query=query,
+            chaves_merge=chaves_pk,
+            coluna_ordem=coluna_ordem,
+            dtype_map=dtype_map,
         )
+
+        if query_pks_completo:
+            resultado["linhas_removidas"] = remover_orfaos(
+                engine, schema, tabela, chaves_pk, query_pks_completo
+            )
+    else:
+        resultado = upsert_cross_servidor(
+            engine, engine_escrita, query, schema, tabela,
+            chaves_merge=chaves_pk, coluna_ordem=coluna_ordem,
+        )
+
+        if query_pks_completo:
+            resultado["linhas_removidas"] = remover_orfaos_cross_servidor(
+                engine, engine_escrita, schema, tabela, chaves_pk, query_pks_completo
+            )
 
     return resultado
