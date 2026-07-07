@@ -40,6 +40,7 @@ VERIFICAÇÃO DE ÓRFÃOS (registros deletados fisicamente no Sapiens):
 
 import sys
 import traceback
+from datetime import datetime
 from time import perf_counter
 
 from comercial.bronze.tabelas import TABELAS, buscar_tabela
@@ -230,8 +231,10 @@ if __name__ == "__main__":
     engine = get_engine()
     resultados = []
     inicio_bloco = perf_counter()
+    inicio_datetime = datetime.now()
 
     print(f"\n{'#'*60}")
+    print(f"  Início da execução: {inicio_datetime:%Y-%m-%d %H:%M:%S}")
     if verificar_orfaos:
         print("  ÚLTIMA EXECUÇÃO DO DIA -- será verificado se há registros órfãos")
         print("  (comparação do universo completo de PKs no Sapiens x Bronze,")
@@ -276,9 +279,12 @@ if __name__ == "__main__":
 
         print(f"  {r['tabela']:<20} -> {status:<8} | linhas salvas: {linhas_fmt:>10} | tempo: {r['duracao_s']:>6.1f}s{orfaos}")
 
+    fim_datetime = datetime.now()
     minutos  = int(duracao_bloco // 60)
     segundos = duracao_bloco % 60
     print(f"{'#'*60}")
+    print(f"  Início da execução : {inicio_datetime:%Y-%m-%d %H:%M:%S}")
+    print(f"  Término da execução: {fim_datetime:%Y-%m-%d %H:%M:%S}")
     print(f"  Duração total do bloco: {minutos}min {segundos:.0f}s")
     if verificar_orfaos:
         total_orfaos = sum(r.get("linhas_removidas", 0) for r in resultados)
