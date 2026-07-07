@@ -59,10 +59,19 @@ TABELAS_DESTE_BLOCO = [
     "E073TRA",
     "E085CLI",
     "E090REP",
-    "E095FOR"
+    "E095FOR",
+    "USU_T017RVR",
+    "USU_T101CRI",
+    "USU_T101MET",
+    "USU_T101TIP",
+    "USU_TPCAMNC",
+    "USU_TPCAPFC",
+    "USU_TPCRCDG",
+    "USU_TPCRCPC",
+    "R999USU",
+    "USU_V660SUB"
 
 ]
-
 
 
 # ----- MONTAGEM DA QUERY -----
