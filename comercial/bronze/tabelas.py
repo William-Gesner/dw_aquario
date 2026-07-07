@@ -9,11 +9,18 @@ Cada entrada descreve:
                   incremental. None = tabela sempre via full_reload (não
                   achamos coluna de data confiável -- são dimensões pequenas,
                   custo de recarregar tudo é baixo).
-    tem_codemp  : se True, a query filtra CODEMP = 1.
+    tem_codemp  : se True, a query filtra a coluna de empresa = 1.
                   se False, a tabela é global no Sapiens e não tem essa coluna
                   (confirmado via ALL_TAB_COLUMNS em 04/07/2026).
-    tem_codfil  : se True, a query também filtra CODFIL = 1 (além de
-                  CODEMP = 1). Só True quando tem_codemp também é True.
+    tem_codfil  : se True, a query também filtra CODFIL = 1 (além do filtro
+                  de empresa). Só True quando tem_codemp também é True.
+    coluna_codemp : nome REAL da coluna de empresa no Sapiens. Opcional --
+                  quando ausente, assume "CODEMP" (o padrão na maioria das
+                  tabelas). Só precisa ser declarado quando o nome físico é
+                  outro, como em USU_T101MET (é "USU_CODEMP", não "CODEMP" --
+                  bug de produção corrigido em 06/07/2026, ver observação).
+    coluna_codfil : mesma ideia, mas para a coluna de filial. Opcional,
+                  assume "CODFIL" quando ausente.
     observacao  : contexto/alerta levantado durante a validação do código
                   legado (comercial/extract/*.py). None quando não há nada
                   relevante a registrar.
@@ -274,15 +281,27 @@ TABELAS = [
     },
     {
         "tabela": "USU_T101MET",
-        "chaves_pk": ["CODEMP", "MESANO", "CODTIP", "SEQREG"],
+        "chaves_pk": ["USU_CODEMP", "USU_MESANO", "USU_CODTIP", "USU_SEQREG"],
         "coluna_data": "USU_DATGER",
-        "tem_codemp": False,
+        "tem_codemp": True,
         "tem_codfil": False,
+        "coluna_codemp": "USU_CODEMP",
         "observacao": (
-            "ATENÇÃO: ALL_TAB_COLUMNS não retornou CODEMP para esta tabela, "
-            "mas a PK física inclui CODEMP (confirmado via vbimetas.py v1.2). "
-            "Validar manualmente se a coluna existe com outro nome ou se a "
-            "query deve filtrar por outro campo de empresa."
+            "CORRIGIDO em 06/07/2026 (erro em produção: ORA-00904 SEQREG "
+            "invalid identifier). O alerta anterior estava certo: a coluna "
+            "de empresa NÃO se chama CODEMP nesta tabela -- é USU_CODEMP "
+            "(confirmado via vbimetas.py v1.2, que fazia "
+            "'M.USU_CODEMP AS CODEMP'). O catálogo estava com os nomes "
+            "ALIASADOS do script legado em vez dos nomes físicos reais da "
+            "coluna -- errado pra Bronze, que é cópia crua sem renomear "
+            "nada. chaves_pk corrigida pros nomes físicos (USU_CODEMP, "
+            "USU_MESANO, USU_CODTIP, USU_SEQREG), e tem_codemp virou True "
+            "com coluna_codemp='USU_CODEMP' (ver montar_query() em "
+            "extrator.py). ATENÇÃO OPERACIONAL: como tem_codemp ficou False "
+            "até agora, a tabela pode ter carregado metas de OUTRAS "
+            "empresas do grupo (não só CODEMP=1) -- é necessário dropar "
+            "DW_BRONZE.USU_T101MET e deixar a próxima execução refazer a "
+            "1ª carga do zero, já com o filtro correto."
         ),
     },
     {

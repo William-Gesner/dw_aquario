@@ -98,8 +98,13 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
     Monta a query de extração no Sapiens para uma tabela do catálogo.
 
     Respeita tem_codemp: tabelas globais (tem_codemp=False) não recebem
-    nenhum filtro de empresa. Para as demais, filtra CODEMP = 1 sempre,
-    e CODFIL = 1 quando tem_codfil = True.
+    nenhum filtro de empresa. Para as demais, filtra pela coluna real de
+    empresa (info["coluna_codemp"], default "CODEMP") = 1, e pela coluna
+    real de filial (info["coluna_codfil"], default "CODFIL") = 1 quando
+    tem_codfil = True. A maioria das tabelas usa os nomes padrão -- só
+    quando o nome físico é outro (ex.: USU_T101MET usa USU_CODEMP, não
+    CODEMP -- bug de produção corrigido em 06/07/2026) o catálogo precisa
+    declarar coluna_codemp/coluna_codfil explicitamente.
 
     Na carga incremental (não é a 1ª carga E a tabela tem coluna_data
     definida no catálogo), adiciona o filtro de janela de 60 dias.
@@ -107,13 +112,16 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
     tabela = info["tabela"]
     filtros = []
 
-    # Filtro de empresa — só para tabelas que têm CODEMP
+    coluna_codemp = info.get("coluna_codemp", "CODEMP")
+    coluna_codfil = info.get("coluna_codfil", "CODFIL")
+
+    # Filtro de empresa — só para tabelas que têm coluna de empresa
     if info["tem_codemp"]:
-        filtros.append(f"CODEMP = {CODEMP_AQUARIO}")
+        filtros.append(f"{coluna_codemp} = {CODEMP_AQUARIO}")
 
     # Filtro de filial — só quando tem_codfil=True (implica tem_codemp=True)
     if info["tem_codfil"]:
-        filtros.append(f"CODFIL = {CODFIL_AQUARIO}")
+        filtros.append(f"{coluna_codfil} = {CODFIL_AQUARIO}")
 
     # Filtro incremental — só nas cargas seguintes à 1ª, e se houver coluna_data
     if not primeira_carga and info["coluna_data"]:
@@ -133,20 +141,23 @@ def montar_query_pks(info: dict) -> str:
     """
     Monta a query leve usada para detectar órfãos (core.loader.remover_orfaos()).
 
-    Traz SÓ as colunas de chaves_pk, no escopo cheio (CODEMP/CODFIL quando
-    aplicável) -- NUNCA com o filtro de janela de 60 dias, porque essa
-    query representa o universo completo e atual do Sapiens, usado pra
-    saber o que realmente não existe mais lá (não só o que ficou de fora
-    da leva incremental).
+    Traz SÓ as colunas de chaves_pk, no escopo cheio (coluna_codemp/
+    coluna_codfil reais, quando aplicável) -- NUNCA com o filtro de janela
+    de 60 dias, porque essa query representa o universo completo e atual
+    do Sapiens, usado pra saber o que realmente não existe mais lá (não só
+    o que ficou de fora da leva incremental).
     """
     tabela   = info["tabela"]
     pk_cols  = ", ".join(info["chaves_pk"])
     filtros  = []
 
+    coluna_codemp = info.get("coluna_codemp", "CODEMP")
+    coluna_codfil = info.get("coluna_codfil", "CODFIL")
+
     if info["tem_codemp"]:
-        filtros.append(f"CODEMP = {CODEMP_AQUARIO}")
+        filtros.append(f"{coluna_codemp} = {CODEMP_AQUARIO}")
     if info["tem_codfil"]:
-        filtros.append(f"CODFIL = {CODFIL_AQUARIO}")
+        filtros.append(f"{coluna_codfil} = {CODFIL_AQUARIO}")
 
     if filtros:
         where = " AND ".join(filtros)
