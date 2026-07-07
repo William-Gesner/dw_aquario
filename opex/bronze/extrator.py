@@ -53,6 +53,10 @@ from core.loader import carregar_bronze, tabela_tem_dados
 
 TABELAS_DESTE_BLOCO = [
     "USU_T650ORC",
+    "USU_T650CUS",
+    "E044CCU",
+    "E043PCM",
+    "R910USU"
 ]
 
 
