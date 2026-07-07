@@ -36,11 +36,31 @@ from core.loader import carregar_bronze, tabela_tem_dados
 # ----- BLOCO ATUAL -----
 
 TABELAS_DESTE_BLOCO = [
+    "E120IPD",
+    "E120PED",
+    "E140IPV",
+    "E140ISV",
+    "E140NFV",
+    "E440IPC",
+    "E440NFC",
+    "E001TNS",
+    "E012FAM",
+    "E013AGP",
     "E028CPG",
     "E066FPG",
+    "E075DER",
+    "E075PRO",
+    "E085HCL",
+    "E140IDE",
+    "E140PVD",
+    "E022CLF",
+    "E026RAM",
+    "E069GRE",
     "E073TRA",
-    "E120IPD",
-    "E120PED"
+    "E085CLI",
+    "E090REP",
+    "E095FOR"
+
 ]
 
 
