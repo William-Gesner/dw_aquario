@@ -17,11 +17,30 @@ Para cada tabela:
                               senão, continua sempre full)
     3. Executa a query no Sapiens, lê para DataFrame.
     4. Chama core.loader.carregar_bronze() para gravar na Bronze.
+
+VERIFICAÇÃO DE ÓRFÃOS (registros deletados fisicamente no Sapiens):
+    Rodar essa verificação em TODO ciclo de 15 min seria uma varredura
+    repetida contra tabelas de até 1,4 milhão de linhas do Sapiens em
+    produção (compartilhado com outras empresas do grupo) -- custo de I/O
+    recorrente desnecessário, já que exclusão física é rara no dia a dia.
+
+    Por isso ela só roda na ÚLTIMA execução do dia, quando o script é
+    chamado com a flag --sweep-orfaos (ex.: agendada para as 19h no
+    Agendador de Tarefas). Nas demais execuções do dia, roda tudo
+    normalmente, sem essa verificação.
+
+    A decisão de "é a última execução do dia" é deliberadamente uma flag
+    explícita passada por quem agenda o script, e não um cálculo por
+    horário aqui dentro -- calcular por relógio seria frágil (atraso de
+    um ciclo, execução manual fora de hora, etc. poderiam pular a
+    verificação do dia inteiro sem ninguém perceber).
 """
 
 # ----- IMPORTS -----
 
+import sys
 import traceback
+from time import perf_counter
 
 from comercial.bronze.tabelas import TABELAS, buscar_tabela
 from comercial.config.settings import (
@@ -69,8 +88,6 @@ TABELAS_DESTE_BLOCO = [
     "USU_TPCRCDG",
     "USU_TPCRCPC",
     "R999USU",
-    "USU_V660SUB"
-
 ]
 
 
@@ -112,10 +129,43 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
         return f"SELECT * FROM SAPIENS.{tabela}"
 
 
+def montar_query_pks(info: dict) -> str:
+    """
+    Monta a query leve usada para detectar órfãos (core.loader.remover_orfaos()).
+
+    Traz SÓ as colunas de chaves_pk, no escopo cheio (CODEMP/CODFIL quando
+    aplicável) -- NUNCA com o filtro de janela de 60 dias, porque essa
+    query representa o universo completo e atual do Sapiens, usado pra
+    saber o que realmente não existe mais lá (não só o que ficou de fora
+    da leva incremental).
+    """
+    tabela   = info["tabela"]
+    pk_cols  = ", ".join(info["chaves_pk"])
+    filtros  = []
+
+    if info["tem_codemp"]:
+        filtros.append(f"CODEMP = {CODEMP_AQUARIO}")
+    if info["tem_codfil"]:
+        filtros.append(f"CODFIL = {CODFIL_AQUARIO}")
+
+    if filtros:
+        where = " AND ".join(filtros)
+        return f"SELECT {pk_cols} FROM SAPIENS.{tabela} WHERE {where}"
+    else:
+        return f"SELECT {pk_cols} FROM SAPIENS.{tabela}"
+
+
 # ----- EXTRAÇÃO E CARGA DE UMA TABELA -----
 
-def rodar_tabela(engine, nome_tabela: str) -> dict:
-    """Executa o ciclo completo (extração + carga) para uma tabela do catálogo."""
+def rodar_tabela(engine, nome_tabela: str, verificar_orfaos: bool = False) -> dict:
+    """
+    Executa o ciclo completo (extração + carga) para uma tabela do catálogo.
+
+    verificar_orfaos: só True na última execução do dia (flag --sweep-orfaos
+    do bloco principal). Controla se query_pks_completo é passada adiante --
+    sem ela, carregar_bronze() simplesmente pula a verificação de órfãos
+    nesta execução (ver docstring do módulo).
+    """
     info = buscar_tabela(nome_tabela)
 
     if info["chaves_pk"] is None:
@@ -132,6 +182,14 @@ def rodar_tabela(engine, nome_tabela: str) -> dict:
 
     coluna_ordem = info["coluna_data"] or info["chaves_pk"][0]
 
+    # query_pks_completo só é usada na carga incremental (carregar_bronze()
+    # ignora esse parâmetro na 1ª carga) -- é a query leve que detecta e
+    # remove órfãos (registros deletados fisicamente no Sapiens), decoupled
+    # da janela de 60 dias do incremental normal. Só é montada quando esta
+    # é a última execução do dia (verificar_orfaos=True) -- nas demais
+    # execuções, fica None e carregar_bronze() pula a verificação.
+    query_pks_completo = montar_query_pks(info) if verificar_orfaos else None
+
     # A leitura do Sapiens acontece DENTRO de carregar_bronze(): na 1ª carga,
     # em lotes (full_reload_streaming) para não estourar memória em tabelas
     # grandes (ex.: E120IPD); nas cargas seguintes, via upsert() normal --
@@ -143,6 +201,7 @@ def rodar_tabela(engine, nome_tabela: str) -> dict:
         query,
         chaves_pk=info["chaves_pk"],
         coluna_ordem=coluna_ordem,
+        query_pks_completo=query_pks_completo,
     )
 
     resultado["tabela"] = nome_tabela
@@ -152,18 +211,39 @@ def rodar_tabela(engine, nome_tabela: str) -> dict:
 # ----- EXECUÇÃO DO BLOCO -----
 
 if __name__ == "__main__":
+    # --sweep-orfaos: passada só pela ÚLTIMA execução agendada do dia (ex.:
+    # 19h no Agendador de Tarefas). Ver docstring do módulo para o porquê de
+    # ser uma flag explícita, e não um cálculo por horário aqui dentro.
+    verificar_orfaos = "--sweep-orfaos" in sys.argv
+
     engine = get_engine()
     resultados = []
+    inicio_bloco = perf_counter()
+
+    print(f"\n{'#'*60}")
+    if verificar_orfaos:
+        print("  ÚLTIMA EXECUÇÃO DO DIA -- será verificado se há registros órfãos")
+        print("  (comparação do universo completo de PKs no Sapiens x Bronze,")
+        print("  sem depender da janela de 60 dias do incremental normal)")
+    else:
+        print("  Execução normal do ciclo -- sem verificação de órfãos")
+    print(f"{'#'*60}")
 
     for nome in TABELAS_DESTE_BLOCO:
+        inicio_tabela = perf_counter()
         try:
-            resultados.append(rodar_tabela(engine, nome))
+            resultado = rodar_tabela(engine, nome, verificar_orfaos=verificar_orfaos)
         except Exception:
             # Uma tabela com erro não pode travar as demais do bloco --
             # loga o erro completo (pra investigar depois) e segue pra próxima.
             print(f"\n  [ERRO] Falha ao processar {nome}:")
             traceback.print_exc()
-            resultados.append({"tabela": nome, "status": "ERRO"})
+            resultado = {"tabela": nome, "status": "ERRO"}
+
+        resultado["duracao_s"] = perf_counter() - inicio_tabela
+        resultados.append(resultado)
+
+    duracao_bloco = perf_counter() - inicio_bloco
 
     print(f"\n{'#'*60}")
     print("  RESUMO DO BLOCO")
@@ -171,4 +251,25 @@ if __name__ == "__main__":
     for r in resultados:
         status = r.get("status", "OK")
         linhas = r.get("linhas_salvas", "-")
-        print(f"  {r['tabela']:<20} -> {status:<8} | linhas salvas: {linhas}")
+        linhas_fmt = f"{linhas:,}" if isinstance(linhas, int) else linhas
+
+        # "linhas_removidas" só existe no dict quando a verificação de
+        # órfãos de fato rodou nesta tabela (verificar_orfaos=True e não foi
+        # 1ª carga) -- por isso o "in r" em vez de comparar contra 0: assim
+        # dá pra distinguir "verificado, não achou órfão" (mostra 0) de
+        # "não foi verificado nesta execução" (não mostra nada).
+        if "linhas_removidas" in r:
+            orfaos = f" | órfãos verificados: {r['linhas_removidas']}"
+        else:
+            orfaos = ""
+
+        print(f"  {r['tabela']:<20} -> {status:<8} | linhas salvas: {linhas_fmt:>10} | tempo: {r['duracao_s']:>6.1f}s{orfaos}")
+
+    minutos  = int(duracao_bloco // 60)
+    segundos = duracao_bloco % 60
+    print(f"{'#'*60}")
+    print(f"  Duração total do bloco: {minutos}min {segundos:.0f}s")
+    if verificar_orfaos:
+        total_orfaos = sum(r.get("linhas_removidas", 0) for r in resultados)
+        print(f"  Última execução do dia: verificação de órfãos concluída -- total removido: {total_orfaos}")
+    print(f"{'#'*60}")

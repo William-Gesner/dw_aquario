@@ -453,6 +453,29 @@ def full_reload_streaming(
 #
 # A Prata NÃO usa essa decisão automática -- os scripts de lá chamam
 # upsert()/full_reload() direto, com a estratégia já fixa por tabela.
+#
+# REMOÇÃO DE ÓRFÃOS (registros deletados fisicamente na origem):
+#     Diferente do projeto legado (aquario/core/loader.py), o upsert() da
+#     Bronze NÃO remove órfãos usando a query incremental (janela de 60
+#     dias) -- um NOT EXISTS contra esse subconjunto apagaria da Bronze
+#     tudo que é mais antigo que a janela, não só os órfãos de verdade
+#     (caso real: meta de funcionário que saiu, deletada no Sapiens --
+#     ver conversa de 06/07/2026). Em vez disso, remover_orfaos() (abaixo)
+#     roda com uma query SEPARADA, que traz só as colunas de PK, no escopo
+#     cheio (CODEMP/CODFIL, sem filtro de data nenhum) -- ou seja, o
+#     universo completo e atual do Sapiens. Só é removido da Bronze o que
+#     não aparece em lugar nenhum desse universo; qualquer linha que ainda
+#     exista no Sapiens (de qualquer data) nunca é tocada.
+#
+#     carregar_bronze() só chama remover_orfaos() quando o chamador
+#     fornece query_pks_completo (nunca acontece na 1ª carga -- ali o
+#     full_reload_streaming() já reflete exatamente o estado atual do
+#     Sapiens, sem risco de sobra). No Comercial (comercial/bronze/
+#     extrator.py), essa query só é fornecida na ÚLTIMA execução do dia
+#     (flag --sweep-orfaos) -- rodar essa varredura a cada ciclo de 15 min
+#     seria custo de I/O repetido e desnecessário contra tabelas de até
+#     1,4 milhão de linhas no Sapiens em produção, quando exclusão física
+#     é rara no dia a dia (decisão de 06/07/2026).
 # ==================================================================
 
 
@@ -478,6 +501,53 @@ def tabela_tem_dados(engine: Engine, schema: str, tabela: str) -> bool:
     return total > 0
 
 
+# ----- REMOÇÃO DE ÓRFÃOS (CAMADA BRONZE) -----
+
+def remover_orfaos(
+    engine: Engine,
+    schema: str,
+    tabela: str,
+    chaves_pk: list[str],
+    query_pks_completo: str,
+) -> int:
+    """
+    Remove da Bronze as linhas cuja PK não existe mais no Sapiens.
+
+    query_pks_completo deve trazer SÓ as colunas de chaves_pk, no escopo
+    cheio da tabela (CODEMP/CODFIL quando aplicável), SEM filtro de data --
+    é o universo completo e atual do Sapiens, desacoplado da janela de 60
+    dias do incremental normal. Uma linha só é removida se a PK dela não
+    aparecer em lugar nenhum desse universo; qualquer linha que ainda
+    exista no Sapiens (de qualquer data) nunca é tocada.
+
+    Returns:
+        Quantidade de linhas removidas (0 se nenhuma).
+    """
+    condicao_merge = " AND ".join(
+        [f"DEST.{col} = SRC.{col}" for col in chaves_pk]
+    )
+
+    delete_sql = f"""
+DELETE FROM {schema}.{tabela} DEST
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM (
+        {query_pks_completo}
+    ) SRC
+    WHERE {condicao_merge}
+)
+"""
+
+    with engine.begin() as conn:
+        resultado = conn.execute(text(delete_sql))
+        linhas_removidas = resultado.rowcount or 0
+
+    if linhas_removidas:
+        print(f"  [BRONZE] {schema}.{tabela}: {linhas_removidas} linha(s) removida(s) (órfã -- excluída na origem)")
+
+    return linhas_removidas
+
+
 # ----- CARGA DA CAMADA BRONZE -----
 
 def carregar_bronze(
@@ -488,6 +558,7 @@ def carregar_bronze(
     chaves_pk: list[str],
     coluna_ordem: str | None = None,
     chunksize: int = 100_000,
+    query_pks_completo: str | None = None,
 ) -> dict:
     """
     Ponto de entrada único de carga para a camada Bronze.
@@ -501,21 +572,32 @@ def carregar_bronze(
     (ex.: E120IPD, 1,4 milhão de linhas x 285 colunas).
 
     Args:
-        query        : query de extração já com o filtro correto (full ou
-                       janela de 60 dias) -- essa decisão é tomada
-                       previamente pelo chamador usando tabela_tem_dados().
-        chaves_pk    : PK real da tabela no Sapiens. Como a Bronze não
-                       aplica nenhuma transformação, é a mesma PK física
-                       de origem.
-        coluna_ordem : usada só na carga incremental, para desduplicar
-                       caso a janela de 60 dias traga o mesmo registro
-                       mais de uma vez no MERGE. Se None, usa a primeira
-                       coluna de chaves_pk.
-        chunksize    : tamanho do lote de leitura na 1ª carga (streaming).
+        query              : query de extração já com o filtro correto
+                             (full ou janela de 60 dias) -- essa decisão é
+                             tomada previamente pelo chamador usando
+                             tabela_tem_dados().
+        chaves_pk          : PK real da tabela no Sapiens. Como a Bronze
+                             não aplica nenhuma transformação, é a mesma
+                             PK física de origem.
+        coluna_ordem       : usada só na carga incremental, para
+                             desduplicar caso a janela de 60 dias traga o
+                             mesmo registro mais de uma vez no MERGE. Se
+                             None, usa a primeira coluna de chaves_pk.
+        chunksize          : tamanho do lote de leitura na 1ª carga
+                             (streaming).
+        query_pks_completo : query leve (só colunas de chaves_pk, escopo
+                             cheio, sem janela de data) usada para
+                             detectar e remover órfãos -- ver
+                             remover_orfaos(). Roda só na carga
+                             incremental, nunca na 1ª carga. Se None,
+                             pula a remoção de órfãos (comportamento
+                             anterior).
 
     Returns:
         dict no mesmo formato retornado por full_reload_streaming() ou
-        upsert(), dependendo de qual estratégia foi usada.
+        upsert(), dependendo de qual estratégia foi usada. Na carga
+        incremental, ganha também a chave 'linhas_removidas' quando
+        query_pks_completo é informado.
     """
     primeira_carga = not tabela_tem_dados(engine, schema, tabela)
 
@@ -530,7 +612,7 @@ def carregar_bronze(
     df.columns = [col.upper() for col in df.columns]
     dtype_map = build_dtype_map(df)
 
-    return upsert(
+    resultado = upsert(
         engine,
         df,
         schema,
@@ -540,3 +622,10 @@ def carregar_bronze(
         coluna_ordem=coluna_ordem or chaves_pk[0],
         dtype_map=dtype_map,
     )
+
+    if query_pks_completo:
+        resultado["linhas_removidas"] = remover_orfaos(
+            engine, schema, tabela, chaves_pk, query_pks_completo
+        )
+
+    return resultado

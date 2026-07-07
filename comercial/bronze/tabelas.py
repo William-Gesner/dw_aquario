@@ -1,11 +1,10 @@
 """
-Catálogo das 34 tabelas Sapiens que formam a camada Bronze do Comercial.
+Catálogo das 33 tabelas Sapiens que formam a camada Bronze do Comercial.
 
 Cada entrada descreve:
-    tabela      : nome exato da tabela/view no Sapiens. Na Bronze, fica com o
+    tabela      : nome exato da tabela no Sapiens. Na Bronze, fica com o
                   MESMO nome (cópia crua, sem transformação).
     chaves_pk   : PK real da tabela no Sapiens (usada no MERGE incremental).
-                  None só para USU_V660SUB, que é VIEW e não tem PK física.
     coluna_data : coluna usada no filtro de janela de 60 dias na carga
                   incremental. None = tabela sempre via full_reload (não
                   achamos coluna de data confiável -- são dimensões pequenas,
@@ -363,23 +362,19 @@ TABELAS = [
             "'NÃO IDENTIFICADO' na Prata. Sem coluna de data -- full_reload sempre."
         ),
     },
-    {
-        "tabela": "USU_V660SUB",
-        "chaves_pk": None,
-        "coluna_data": None,
-        "tem_codemp": False,
-        "tem_codfil": False,
-        "observacao": (
-            "É VIEW no Sapiens, sem PK física -- MERGE não se aplica. "
-            "Não é usada por nenhum dos 7 scripts hoje; só entra na Bronze "
-            "por causa da view USU_V660SUB_VW (fase 2). Sempre full_reload."
-        ),
-    },
 ]
 
 # ----- VALIDAÇÃO -----
 
-assert len(TABELAS) == 34, f"Esperado 34 tabelas no catálogo, encontrado {len(TABELAS)}"
+assert len(TABELAS) == 33, f"Esperado 33 tabelas no catálogo, encontrado {len(TABELAS)}"
+
+# NOTA: USU_V660SUB (view do Sapiens, sem PK física) foi removida deste
+# catálogo em 06/07/2026 -- não é usada por nenhum dos 7 scripts legados do
+# Comercial, e a justificativa anterior ("fase 2" / view USU_V660SUB_VW) não
+# tinha nenhuma base documentada no projeto. Migrar só o que está
+# comprovadamente em uso é a regra; se algum dia ela for necessária, entra
+# no catálogo com a real necessidade documentada (e vai precisar de um
+# caminho de carga próprio, já que o motor genérico atual exige PK).
 
 
 # ----- FUNÇÃO AUXILIAR -----
