@@ -176,6 +176,7 @@ TABELAS = [
         "tabela": "E900EOQ",
         "chaves_pk": ["CODEMP", "CODORI", "NUMORP", "CODETG", "SEQEOQ"],
         "coluna_data": "DATREA",
+        "data_sentinela": "1900-12-31",
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
         "tem_codfil": False,
@@ -183,7 +184,17 @@ TABELAS = [
             "Apontamento de produção por OP/estágio/data -- provavelmente "
             "a maior tabela nova desta área (usada em 4 subconsultas "
             "correlacionadas dentro de vbidesempenho.py). Full_reload_"
-            "streaming na 1ª carga, mesmo tratamento do E120IPD."
+            "streaming na 1ª carga, mesmo tratamento do E120IPD. "
+            "BUG CORRIGIDO EM 09/07/2026: DATREA usa 1900-12-31 como "
+            "sentinela de \"sem data definida\" (apontamento ainda "
+            "pendente/não finalizado -- mesma convenção já vista em "
+            "DATFIN no Laudos RMA legado). Como 1900-12-31 nunca satisfaz "
+            "DATREA >= SYSDATE-60, linha nova com esse valor ficava "
+            "permanentemente fora do incremental (confirmado via "
+            "conferência: 3 linhas nunca chegavam na Bronze, sempre as "
+            "mesmas, em execuções sucessivas). data_sentinela faz o "
+            "filtro incremental sempre incluir essas linhas também, até "
+            "ganharem uma data real."
         ),
     },
     {

@@ -81,6 +81,15 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
 
     Na carga incremental (não é a 1ª carga E a tabela tem coluna_data
     definida no catálogo), adiciona o filtro de janela de 60 dias.
+
+    data_sentinela (opcional, ex.: E900EOQ = "1900-12-31"): algumas
+    tabelas do Sapiens usam uma data fixa no passado como "sem data
+    definida" (ex.: apontamento ainda pendente), em vez de NULL. Como
+    esse valor nunca satisfaz >= SYSDATE-60, uma linha nova com esse
+    sentinela ficaria permanentemente fora do incremental -- bug real
+    encontrado em 09/07/2026 via conferência (E900EOQ). Quando o
+    catálogo declara data_sentinela, o filtro de janela também inclui
+    linhas com esse valor exato, até ganharem uma data real.
     """
     tabela = info["tabela"]
     filtros = []
@@ -94,9 +103,17 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
         filtros.append(f"{coluna_codfil} = {CODFIL_AQUARIO}")
 
     if not primeira_carga and info["coluna_data"]:
-        filtros.append(
-            f"{info['coluna_data']} >= SYSDATE - {JANELA_INCREMENTAL_DIAS}"
-        )
+        coluna_data = info["coluna_data"]
+        sentinela = info.get("data_sentinela")
+        if sentinela:
+            filtros.append(
+                f"({coluna_data} >= SYSDATE - {JANELA_INCREMENTAL_DIAS} "
+                f"OR {coluna_data} = TO_DATE('{sentinela}', 'YYYY-MM-DD'))"
+            )
+        else:
+            filtros.append(
+                f"{coluna_data} >= SYSDATE - {JANELA_INCREMENTAL_DIAS}"
+            )
 
     if filtros:
         where = " AND ".join(filtros)
