@@ -831,6 +831,17 @@ def carregar_bronze(
     engine_escrita = engine_escrita or engine
     mesmo_servidor = engine_escrita is engine
 
+    if chaves_pk is None:
+        # Tabela sem PK física (view) -- MERGE não se aplica, não há chave
+        # pra casar/desduplicar registros. Sempre full_reload, mesmo que a
+        # tabela já tenha dados (ex.: USU_VZRASLAU no Laudos RMA/
+        # Rastreabilidade). A query já deve vir sem filtro de janela de
+        # data -- quem monta ela (extrator da área) é responsável por isso.
+        print(f"  [BRONZE] {schema}.{tabela}: sem PK (view) -> SEMPRE FULL_RELOAD")
+        return full_reload_streaming(
+            engine, query, schema, tabela, chunksize=chunksize, engine_escrita=engine_escrita
+        )
+
     primeira_carga = not tabela_tem_dados(engine_escrita, schema, tabela)
 
     if primeira_carga:
