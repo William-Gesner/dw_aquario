@@ -134,12 +134,25 @@ def upsert(
     condicao_merge = " AND ".join(
         [f"DEST.{col} = SRC.{col}" for col in chaves_merge]
     )
-    set_update = ",\n        ".join(
-        [f"DEST.{col} = SRC.{col}" for col in colunas_update]
-    )
     insert_cols   = ",\n        ".join(colunas)
     insert_values = ",\n        ".join([f"SRC.{col}" for col in colunas])
     partition_by  = ",\n                    ".join(chaves_merge)
+
+    # Tabelas onde TODA coluna faz parte da chave de merge (ex.: R900GRP,
+    # associação pura GRPID+MEMID) não sobram colunas pra um UPDATE SET --
+    # se a chave bate, a linha já é idêntica. Um "UPDATE SET" vazio quebra
+    # o Oracle (ORA-00927), então omitimos o WHEN MATCHED inteiro; o MERGE
+    # vira efetivamente um "insere se ainda não existir".
+    if colunas_update:
+        set_update = ",\n        ".join(
+            [f"DEST.{col} = SRC.{col}" for col in colunas_update]
+        )
+        when_matched = f"""WHEN MATCHED THEN
+    UPDATE SET
+        {set_update}
+"""
+    else:
+        when_matched = ""
 
     merge_sql = f"""
 MERGE INTO {schema}.{tabela} DEST
@@ -164,10 +177,7 @@ USING (
 ON (
     {condicao_merge}
 )
-WHEN MATCHED THEN
-    UPDATE SET
-        {set_update}
-WHEN NOT MATCHED THEN
+{when_matched}WHEN NOT MATCHED THEN
     INSERT (
         {insert_cols}
     )
@@ -643,10 +653,20 @@ def upsert_cross_servidor(
         colunas_update = [col for col in colunas if col not in chaves_merge]
 
         condicao_merge = " AND ".join([f"DEST.{col} = SRC.{col}" for col in chaves_merge])
-        set_update     = ",\n        ".join([f"DEST.{col} = SRC.{col}" for col in colunas_update])
         insert_cols    = ",\n        ".join(colunas)
         insert_values  = ",\n        ".join([f"SRC.{col}" for col in colunas])
         partition_by   = ",\n                    ".join(chaves_merge)
+
+        # Ver nota em upsert(): tabela onde toda coluna é chave de merge
+        # não sobra nada pro UPDATE SET -- omite o WHEN MATCHED inteiro.
+        if colunas_update:
+            set_update = ",\n        ".join([f"DEST.{col} = SRC.{col}" for col in colunas_update])
+            when_matched = f"""WHEN MATCHED THEN
+    UPDATE SET
+        {set_update}
+"""
+        else:
+            when_matched = ""
 
         merge_sql = f"""
 MERGE INTO {schema}.{tabela} DEST
@@ -669,10 +689,7 @@ USING (
 ON (
     {condicao_merge}
 )
-WHEN MATCHED THEN
-    UPDATE SET
-        {set_update}
-WHEN NOT MATCHED THEN
+{when_matched}WHEN NOT MATCHED THEN
     INSERT (
         {insert_cols}
     )
