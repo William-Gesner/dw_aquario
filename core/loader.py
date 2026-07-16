@@ -146,6 +146,8 @@ def upsert(
     Returns:
         dict com chaves: linhas_extraidas, linhas_inseridas, linhas_atualizadas, linhas_salvas
     """
+    print(f"\n  [{schema}.{tabela}] Tipo de carga: UPSERT (MERGE)")
+
     linhas_extraidas = len(df)
     print(f"  Linhas extraídas : {linhas_extraidas:>10,}")
 
@@ -302,6 +304,8 @@ def full_reload(
     Returns:
         dict com chaves: linhas_extraidas, linhas_salvas
     """
+    print(f"\n  [{schema}.{tabela}] Tipo de carga: FULL_RELOAD (DROP + recarga)")
+
     linhas_extraidas = len(df)
     print(f"  Linhas extraídas : {linhas_extraidas:>10,}")
 
@@ -469,6 +473,8 @@ def full_reload_streaming(
     Returns:
         dict com chaves: linhas_extraidas, linhas_salvas
     """
+    print(f"\n  [{schema}.{tabela}] Tipo de carga: FULL_RELOAD_STREAMING (DROP + recarga em lotes)")
+
     engine_escrita = engine_escrita or engine
     insp = inspect(engine_escrita)
 
@@ -683,6 +689,8 @@ def upsert_cross_servidor(
         dict com chaves: linhas_extraidas, linhas_inseridas,
         linhas_atualizadas, linhas_salvas
     """
+    print(f"\n  [{schema}.{tabela}] Tipo de carga: UPSERT (MERGE, cross-servidor)")
+
     with engine_leitura.connect() as conn:
         df = pd.read_sql(text(query), conn)
     df.columns = [col.upper() for col in df.columns]
