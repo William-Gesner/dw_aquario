@@ -27,6 +27,7 @@ projeto legado, só que agora apontando para schema_prata.
 # ----- IMPORTS -----
 
 import warnings
+from datetime import datetime
 
 import pandas as pd
 from sqlalchemy import inspect, text
@@ -34,6 +35,23 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.types import CLOB, DateTime, Integer, Numeric, String
 
 from core.dtype_map import build_dtype_map
+
+
+# ----- METADADO DE CARGA (TODA ESCRITA, BRONZE E PRATA) -----
+
+def _nome_coluna_metadado(schema: str) -> str:
+    """
+    Nome da coluna que registra quando esta linha foi gravada/atualizada
+    por este pipeline pela última vez -- carimbada automaticamente em
+    toda chamada de upsert()/full_reload()/full_reload_streaming(), sem
+    o script de nenhuma área precisar fazer isso na mão.
+
+    Nomes diferentes por camada porque a ação é diferente: a Bronze
+    INGERE (cópia crua do Sapiens), a Prata PROCESSA (aplica regra de
+    negócio em cima da Bronze) -- "DW_DATA_INGESTAO" numa tabela da
+    Prata seria enganoso.
+    """
+    return "DW_DATA_PROCESSAMENTO" if schema.upper() == "DW_PRATA" else "DW_DATA_INGESTAO"
 
 
 # ----- FUNÇÕES INTERNAS -----
@@ -100,12 +118,13 @@ def upsert(
            ordenando pela coluna_ordem para manter sempre o registro mais relevante.
         5. Atualiza registros existentes (WHEN MATCHED) e insere novos (WHEN NOT MATCHED).
 
+    Toda linha gravada (inserida ou atualizada) ganha automaticamente a
+    coluna de metadado (ver _nome_coluna_metadado()) com o timestamp
+    desta execução -- não depende de nenhum script de área declarar isso.
+
     Returns:
         dict com chaves: linhas_extraidas, linhas_inseridas, linhas_atualizadas, linhas_salvas
     """
-    if dtype_map is None:
-        dtype_map = build_dtype_map(df)
-
     linhas_extraidas = len(df)
     print(f"  Linhas extraídas : {linhas_extraidas:>10,}")
 
@@ -118,6 +137,13 @@ def upsert(
             "linhas_atualizadas": 0,
             "linhas_salvas": 0,
         }
+
+    coluna_metadado = _nome_coluna_metadado(schema)
+    df[coluna_metadado] = datetime.now()
+
+    if dtype_map is None:
+        dtype_map = build_dtype_map(df)
+    dtype_map.setdefault(coluna_metadado, DateTime())
 
     _ensure_table(engine, df, schema, tabela, dtype_map)
 
@@ -232,12 +258,12 @@ def full_reload(
         1. Remove a tabela de destino (ignora erro se não existir).
         2. Recria a tabela e insere todos os dados em lotes (chunksize).
 
+    Toda linha gravada ganha automaticamente a coluna de metadado (ver
+    _nome_coluna_metadado()) com o timestamp desta execução.
+
     Returns:
         dict com chaves: linhas_extraidas, linhas_salvas
     """
-    if dtype_map is None:
-        dtype_map = build_dtype_map(df)
-
     linhas_extraidas = len(df)
     print(f"  Linhas extraídas : {linhas_extraidas:>10,}")
 
@@ -248,6 +274,13 @@ def full_reload(
             "linhas_extraidas": 0,
             "linhas_salvas": 0,
         }
+
+    coluna_metadado = _nome_coluna_metadado(schema)
+    df[coluna_metadado] = datetime.now()
+
+    if dtype_map is None:
+        dtype_map = build_dtype_map(df)
+    dtype_map.setdefault(coluna_metadado, DateTime())
 
     # ----- REMOÇÃO DA TABELA EXISTENTE -----
     # IMPORTANTE: a verificação de existência é feita ANTES do DROP (via
@@ -408,12 +441,15 @@ def full_reload_streaming(
     else:
         print(f"  Tabela {schema}.{tabela} não existia, será criada.")
 
+    coluna_metadado = _nome_coluna_metadado(schema)
     dtype_map = _dtype_map_da_origem(engine, owner_origem, tabela)
+    dtype_map[coluna_metadado] = DateTime()
     linhas_extraidas = 0
 
     with engine.connect() as conn:
         for i, chunk in enumerate(pd.read_sql(text(query), conn, chunksize=chunksize), start=1):
             chunk.columns = [col.upper() for col in chunk.columns]
+            chunk[coluna_metadado] = datetime.now()
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
@@ -625,7 +661,11 @@ def upsert_cross_servidor(
             "linhas_salvas": 0,
         }
 
+    coluna_metadado = _nome_coluna_metadado(schema)
+    df[coluna_metadado] = datetime.now()
+
     dtype_map = build_dtype_map(df)
+    dtype_map.setdefault(coluna_metadado, DateTime())
     _ensure_table(engine_escrita, df, schema, tabela, dtype_map)
 
     with engine_escrita.connect() as conn:
