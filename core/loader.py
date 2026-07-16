@@ -62,6 +62,7 @@ def _ensure_table(
     schema: str,
     tabela: str,
     dtype_map: dict,
+    chaves_indice: list[str] | None = None,
 ) -> None:
     """
     Cria a tabela de destino no Oracle caso ela ainda não exista.
@@ -69,25 +70,45 @@ def _ensure_table(
     Utiliza o cabeçalho do DataFrame (0 linhas) para inferir a estrutura,
     garantindo que os tipos sejam aplicados conforme o dtype_map fornecido.
 
+    Se chaves_indice for informado E a tabela ainda não existir, cria
+    também um índice comum (não é constraint de PK -- ver observação em
+    manutencao_bronze.sql sobre por quê) nessas colunas, na mesma hora em
+    que a tabela nasce -- assim toda tabela nova (Bronze ou Prata) já
+    nasce indexada, sem precisar de retrofit depois. Só roda na criação;
+    tabelas que já existem não são tocadas (idempotente).
+
     Args:
-        engine    : engine SQLAlchemy conectado ao Oracle.
-        df        : DataFrame com a estrutura de colunas desejada.
-        schema    : schema Oracle de destino (ex.: 'DW_BRONZE', 'DW_PRATA').
-        tabela    : nome da tabela de destino.
-        dtype_map : mapeamento {coluna: tipo_SQLAlchemy}.
+        engine        : engine SQLAlchemy conectado ao Oracle.
+        df            : DataFrame com a estrutura de colunas desejada.
+        schema        : schema Oracle de destino (ex.: 'DW_BRONZE', 'DW_PRATA').
+        tabela        : nome da tabela de destino.
+        dtype_map     : mapeamento {coluna: tipo_SQLAlchemy}.
+        chaves_indice : colunas pra indexar na criação (normalmente a
+                        chave de merge/PK). None = não cria índice.
     """
     insp = inspect(engine)
 
     if not insp.has_table(tabela, schema=schema):
-        df.head(0).to_sql(
-            name=tabela.upper(),
-            con=engine,
-            schema=schema,
-            if_exists="fail",
-            index=False,
-            dtype=dtype_map,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            df.head(0).to_sql(
+                name=tabela.upper(),
+                con=engine,
+                schema=schema,
+                if_exists="fail",
+                index=False,
+                dtype=dtype_map,
+            )
         print(f"  Tabela {schema}.{tabela} criada.")
+
+        if chaves_indice:
+            nome_indice = f"IDX_{tabela}_PK"
+            colunas_indice = ", ".join(chaves_indice)
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f"CREATE INDEX {schema}.{nome_indice} ON {schema}.{tabela} ({colunas_indice})")
+                )
+            print(f"  Índice {nome_indice} criado em {schema}.{tabela} ({colunas_indice}).")
     else:
         print(f"  Tabela {schema}.{tabela} já existe.")
 
@@ -145,7 +166,7 @@ def upsert(
         dtype_map = build_dtype_map(df)
     dtype_map.setdefault(coluna_metadado, DateTime())
 
-    _ensure_table(engine, df, schema, tabela, dtype_map)
+    _ensure_table(engine, df, schema, tabela, dtype_map, chaves_indice=chaves_merge)
 
     # ----- CONTAGEM ANTES DO MERGE -----
     with engine.connect() as conn:
@@ -180,6 +201,23 @@ def upsert(
     else:
         when_matched = ""
 
+    # A `query` original nunca traz a coluna de metadado (ela não existe na
+    # origem -- só é criada por nós no destino). O MERGE reexecuta `query`
+    # como SQL puro dentro do próprio banco (não usa os valores do `df` em
+    # memória para os dados em si, só pra estrutura da tabela via
+    # _ensure_table()) -- então o SELECT externo, que lista TODAS as
+    # colunas de `df` (incluindo a de metadado), falhava com ORA-00904
+    # buscando uma coluna que a query embutida nunca produzia. Corrigido
+    # envolvendo a query numa camada extra que calcula a coluna de
+    # metadado no próprio banco (SYSDATE), sem depender do timestamp
+    # gerado em Python (que só serve pra criar a tabela com o tipo certo).
+    query_com_metadado = f"""
+SELECT Q_BASE.*, SYSDATE AS {coluna_metadado}
+FROM (
+    {query}
+) Q_BASE
+"""
+
     merge_sql = f"""
 MERGE INTO {schema}.{tabela} DEST
 USING (
@@ -195,7 +233,7 @@ USING (
                     {coluna_ordem}
             ) AS RN
         FROM (
-            {query}
+            {query_com_metadado}
         ) Q
     )
     WHERE RN = 1
@@ -666,7 +704,7 @@ def upsert_cross_servidor(
 
     dtype_map = build_dtype_map(df)
     dtype_map.setdefault(coluna_metadado, DateTime())
-    _ensure_table(engine_escrita, df, schema, tabela, dtype_map)
+    _ensure_table(engine_escrita, df, schema, tabela, dtype_map, chaves_indice=chaves_merge)
 
     with engine_escrita.connect() as conn:
         total_antes = conn.execute(text(f"SELECT COUNT(*) FROM {schema}.{tabela}")).scalar()
