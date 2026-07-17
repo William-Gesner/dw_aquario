@@ -268,12 +268,25 @@ TABELAS = [
     {
         "tabela": "E085CLI",
         "chaves_pk": ["CODCLI"],
-        "coluna_data": "DATATU",
+        "coluna_data": None,
         "tem_codemp": False,
         "tem_codfil": False,
         "observacao": (
             "Tabela global (confirmado via ALL_TAB_COLUMNS). "
-            "DATATU já usada como última atualização em vbicliente.py."
+            "CORRIGIDO em 17/07/2026: coluna_data era 'DATATU', com "
+            "incremental de 60 dias -- mas DATATU não captura toda edição "
+            "de cadastro (confirmado: cliente com ENDCLI/NENCLI editado no "
+            "Sapiens sem DATATU mudar, comparado direto Sapiens x legado -- "
+            "os dois batiam entre si, só a Bronze estava com valor antigo, "
+            "preso pra sempre porque a janela de 60 dias nunca via motivo "
+            "pra reler essa linha). O legado (vbicliente.py) nunca filtrou "
+            "por data nessa tabela -- sempre relê a base inteira a cada "
+            "execução, MERGE só como estratégia de escrita, não de "
+            "leitura. coluna_data virou None: Bronze agora também relê "
+            "E085CLI inteira a cada ciclo (~145 mil linhas, barato -- nada "
+            "perto das 7 grandes), replicando o comportamento real do "
+            "legado em vez de confiar num carimbo de auditoria que não é "
+            "confiável pra esses campos."
         ),
     },
     {
