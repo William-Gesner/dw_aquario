@@ -7,8 +7,8 @@ atualizada conforme cada arquivo prata/<nome_tabela>.py é criado e
 validado. Serve de referência rápida (nome antigo x novo, estratégia de
 carga, classificação) sem precisar abrir os 7 scripts pra saber o status.
 
-Ver contexto_prata.md (raiz do projeto) para o histórico completo de
-decisões e o porquê de cada uma.
+Ver doc_nova_arquitetura.md (raiz do projeto) para o histórico completo
+de decisões e o porquê de cada uma.
 """
 
 # ----- CATÁLOGO -----
@@ -24,7 +24,7 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["CODCPG"],
         "corte_data": None,
-        "status": "PRONTA -- validar na VM",
+        "status": "VALIDADA (16/07/2026) -- extração OK (176 linhas) + conferencia_dim_condicao_pagamento.py bateu [OK] contra o legado",
         "observacao": "Lógica idêntica ao legado, só troca origem (Bronze).",
     },
     {
@@ -36,7 +36,7 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["CHAVE_ITEM"],
         "corte_data": None,
-        "status": "A FAZER",
+        "status": "PRONTA -- validar na VM (extração + conferencia_dim_produto.py)",
         "observacao": None,
     },
     {
@@ -48,7 +48,7 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["CODREP"],
         "corte_data": None,
-        "status": "A FAZER",
+        "status": "PRONTA -- validar na VM (extração + conferencia_dim_representante.py)",
         "observacao": None,
     },
     {
@@ -60,11 +60,16 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["ID_REGIONAL"],
         "corte_data": None,
-        "status": "A FAZER",
+        "status": "PRONTA -- validar na VM (extração + conferencia_dim_regional.py)",
         "observacao": (
-            "Melhoria planejada: overrides hardcoded de responsável (hoje "
-            "num CASE dentro da query) saem pra um dicionário Python "
-            "documentado -- mesmo resultado, mais fácil de manter/estender."
+            "Overrides hardcoded de responsável (3 regionais por ID + 1 "
+            "login) isolados em 2 CTEs no topo da query (WITH "
+            "OVERRIDES_POR_REGIONAL / OVERRIDES_POR_LOGIN), combinados via "
+            "COALESCE -- mesmo resultado do CASE original, mais fácil de "
+            "estender. Tentativa inicial de fazer isso em pandas (pós-"
+            "processando o DataFrame) foi descartada -- upsert() reexecuta "
+            "a query original como SQL puro dentro do MERGE, então a "
+            "correção precisa estar na própria query."
         ),
     },
     {
@@ -76,7 +81,7 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["CODEMP", "MESANO", "CODTIP", "SEQREG"],
         "corte_data": None,
-        "status": "A FAZER",
+        "status": "PRONTA -- validar na VM (extração + conferencia_fat_metas.py)",
         "observacao": "Sem corte de data no legado -- confirmar antes de aplicar 2021.",
     },
     {
@@ -88,12 +93,12 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["COD_CLIENTE"],
         "corte_data": None,
-        "status": "A FAZER",
+        "status": "PRONTA -- validar na VM (extração + conferencia_dim_cliente.py; mais pesada das 5, pode demorar mais)",
         "observacao": (
             "Tem CTE pesada (ranking de dia de compra via DENSE_RANK sobre "
             "todo o histórico de E140NFV) -- mantida idêntica, sem "
             "otimização incremental por enquanto (risco de drift silencioso "
-            "-- ver contexto_prata.md)."
+            "-- ver doc_nova_arquitetura.md)."
         ),
     },
     {
@@ -102,17 +107,24 @@ TABELAS = [
         "script_legado": "vbifaturamento.py",
         "arquivo_prata": "fat_faturamento.py",
         "classificacao": "FATO",
-        "tipo_carga": "full_reload",  # PENDENTE DE CONFIRMAÇÃO -- ver contexto_prata.md
+        "tipo_carga": "full_reload",  # CONFIRMADO com o usuário em 17/07/2026
         "chaves_merge": None,
         "corte_data": "01/01/2021",
-        "status": "A FAZER -- estratégia de carga em avaliação dedicada",
+        "status": "PRONTA -- validar na VM (extração + conferencia_fat_faturamento.py)",
         "observacao": (
             "Mais complexa das 7: UNION ALL de 4 naturezas diferentes "
             "(pedido em aberto -- mutável -- e vendas/devoluções -- "
-            "imutáveis), sem chave natural exposta na query atual, "
-            "full_reload no legado. Decisão de manter full_reload ou "
-            "redesenhar pra incremental ainda em aberto -- ver "
-            "contexto_prata.md antes de mexer nela."
+            "imutáveis), sem chave natural 100% confiável -- full_reload "
+            "confirmado (não muda) pelos mesmos motivos do legado. "
+            "Melhorias aplicadas: colunas de sequência de origem "
+            "(SEQIPD/SEQIPV/SEQISV/SEQIPC) adicionadas por bloco -- "
+            "aditivo, não existem no legado, ficam fora da conferência de "
+            "propósito. Hint manual do Oracle (bloco DEV) removido -- só "
+            "afeta plano de execução, nunca resultado. Deduplicação do "
+            "cálculo de FUNDPOB foi cogitada e **descartada** -- risco de "
+            "reestruturar uma query financeira sem poder testar contra "
+            "Oracle real não compensa o ganho; mantido igual ao legado, "
+            "candidato a otimização futura."
         ),
     },
 

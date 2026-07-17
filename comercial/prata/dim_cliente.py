@@ -1,0 +1,197 @@
+"""
+Carga da dimensão de cliente do BI Comercial -- camada Prata.
+
+Origem  : DW_BRONZE.E085CLI, E069GRE, E140NFV, E001TNS, E140IDE,
+          E026RAM, E085HCL, USU_T017RVR, USU_TPCRCPC, USU_TPCRCDG,
+          E066FPG, E028CPG, USU_TPCAPFC, USU_TPCAMNC, E073TRA, E090REP
+Destino : DW_PRATA.DIM_CLIENTE (era BIAQUARIO.USU_BVIACLIENTES no legado)
+Carga   : upsert (MERGE por COD_CLIENTE) -- mesma estratégia do legado
+          (comercial/extract/vbicliente.py).
+
+Lógica de negócio idêntica ao legado -- só a origem mudou de SAPIENS
+para DW_BRONZE. Classificação: DIMENSÃO (mesmo carregando atributos
+agregados de 1ª/2ª/3ª/4ª compra -- a granularidade é 1 linha por
+cliente, não por transação).
+
+ATENÇÃO -- MANTIDO DE PROPÓSITO SEM OTIMIZAÇÃO: a CTE VENDAS_CLIENTES_RANK
+recalcula, do zero, o ranking de dia-de-compra (DENSE_RANK) de TODA a
+base de clientes sobre TODO o histórico de E140NFV, a cada execução --
+mesmo comportamento do legado. Isso é insumo de métrica de recorrência/
+churn; um redesenho incremental (recalcular só quem comprou de novo)
+economizaria custo, mas foi decidido NÃO fazer isso agora -- risco de o
+incremental "dar drift" silenciosamente em relação ao valor correto é
+maior que o ganho de performance. Fica registrado como candidato a uma
+otimização futura dedicada, não parte desta migração.
+"""
+
+# ----- IMPORTS -----
+
+import pandas as pd
+from sqlalchemy import text
+
+from comercial.config.settings import schema_bronze, schema_prata
+from core.db import get_engine_prata
+from core.dtype_map import build_dtype_map
+from core.loader import upsert
+
+# ----- CONFIGURAÇÃO DA TABELA DESTINO -----
+
+tabela_destino = "DIM_CLIENTE"
+
+# ----- QUERY DE EXTRAÇÃO (lendo da Bronze) -----
+
+query = f"""
+WITH VENDAS_CLIENTES_RANK AS (
+    SELECT
+        COALESCE(G.CLIBAS, C.CODCLI) AS COD_CLI_BASE,
+        NF.DATEMI,
+        NF.NUMNFV,
+        NF.CODREP,
+        DENSE_RANK() OVER (
+            PARTITION BY COALESCE(G.CLIBAS, C.CODCLI)
+            ORDER BY TRUNC(NF.DATEMI) ASC
+        ) AS RANK_DIA_COMPRA
+    FROM {schema_bronze}.E140NFV NF
+    INNER JOIN {schema_bronze}.E001TNS T
+        ON NF.CODEMP = T.CODEMP
+       AND NF.TNSPRO = T.CODTNS
+    INNER JOIN {schema_bronze}.E140IDE I
+        ON NF.CODEMP = I.CODEMP
+       AND NF.NUMNFV = I.NUMNFV
+    JOIN {schema_bronze}.E085CLI C
+        ON NF.CODCLI = C.CODCLI
+    LEFT JOIN {schema_bronze}.E069GRE G
+        ON C.CODGRE = G.CODGRE
+    WHERE NF.CODEMP = 1
+      AND NF.TIPNFS = 1
+      AND NF.SITNFV = '2'
+      AND T.VENFAT = 'S'
+      AND I.SITDOE = 3
+),
+VENDAS_CONSOLIDADAS_GRUPO AS (
+    SELECT
+        COD_CLI_BASE,
+        MIN(DATEMI) AS PRIMEIRA_COMPRA_BASE,
+        MAX(DATEMI) AS ULTIMA_COMPRA_BASE,
+        MIN(CODREP) KEEP (
+            DENSE_RANK FIRST ORDER BY DATEMI ASC, NUMNFV ASC
+        ) AS PRIMEIRO_REP_BASE,
+        MAX(CODREP) KEEP (
+            DENSE_RANK LAST ORDER BY DATEMI ASC, NUMNFV ASC
+        ) AS ULTIMO_REP_BASE,
+        MIN(CASE WHEN RANK_DIA_COMPRA = 2 THEN DATEMI END) AS SEGUNDA_COMPRA_BASE,
+        MIN(CASE WHEN RANK_DIA_COMPRA = 3 THEN DATEMI END) AS TERCEIRA_COMPRA_BASE,
+        MIN(CASE WHEN RANK_DIA_COMPRA = 4 THEN DATEMI END) AS QUARTA_COMPRA_BASE
+    FROM VENDAS_CLIENTES_RANK
+    GROUP BY COD_CLI_BASE
+)
+SELECT
+    NVL(G.CODGRE, 0) AS COD_GRUPO,
+    NVL(TRIM(UPPER(G.NOMGRE)), 'SEM GRUPO') AS NOME_GRUPO,
+    COALESCE(G.CLIBAS, C.CODCLI) AS CODCLI_BASE,
+    CASE
+        WHEN CLIBAS.TIPCLI = 'F' THEN LPAD(CLIBAS.CGCCPF, 11, '0')
+        ELSE LPAD(CLIBAS.CGCCPF, 14, '0')
+    END AS DOC_BASE,
+    TRIM(UPPER(CLIBAS.NOMCLI)) AS NOME_BASE,
+    CLIBAS.SIGUFS AS UF_BASE,
+    TRIM(UPPER(CLIBAS.CIDCLI)) AS CIDADE_BASE,
+    TRUNC(V.PRIMEIRA_COMPRA_BASE) AS DT_PRIMCOMPRA_BASE,
+    TRUNC(V.SEGUNDA_COMPRA_BASE) AS DT_SEGCOMPRA_BASE,
+    TRUNC(V.TERCEIRA_COMPRA_BASE) AS DT_TERCOMPRA_BASE,
+    TRUNC(V.QUARTA_COMPRA_BASE) AS DT_QUACOMPRA_BASE,
+    V.PRIMEIRO_REP_BASE AS CODREP_ABERTURA,
+    TRIM(UPPER(R_PRI.NOMREP)) AS REP_ABERTURA,
+    TRUNC(V.ULTIMA_COMPRA_BASE) AS DT_ULTCOMPRA_BASE,
+    V.ULTIMO_REP_BASE AS CODREP_ULTVENDA,
+    TRIM(UPPER(R_ULT.NOMREP)) AS REP_ULT_VENDA,
+    C.USU_CODRVR AS COD_REGIONAL,
+    TRIM(UPPER(REG.USU_NOMRVR)) AS NOME_REGIONAL,
+    H.CODREP AS CODREP_ATUAL,
+    TRIM(UPPER(R_ATU.NOMREP)) AS NOME_REP_ATUAL,
+    C.CODCLI AS COD_CLIENTE,
+    CASE
+        WHEN C.TIPCLI = 'F' THEN LPAD(C.CGCCPF, 11, '0')
+        ELSE LPAD(C.CGCCPF, 14, '0')
+    END AS DOC_CLIENTE,
+    TRIM(UPPER(C.NOMCLI)) AS NOME_CLIENTE,
+    CASE WHEN C.TIPCLI = 'F' THEN 'PF' ELSE 'PJ' END AS TIPO_CLIENTE,
+    CASE WHEN C.SITCLI = 'A' THEN 'ATIVO' ELSE 'INATIVO' END AS STATUS_CLIENTE,
+    C.CODRAM AS COD_RAMO_ATIVIDADE,
+    TRIM(UPPER(RAM.DESRAM)) AS DESC_RAMO_ATIVIDADE,
+    TRUNC(C.DATCAD) AS DT_CADASTRO,
+    TRUNC(C.DATATU) AS DT_ULTIMA_ATUALIZACAO,
+    MODNEG.USU_CODMNC AS COD_MOD_NEGOCIO,
+    TRIM(UPPER(MODNEG.USU_DSCMNC)) AS DESC_MOD_NEGOCIO,
+    PERFIL.USU_CODPFC AS COD_PERFIL,
+    TRIM(UPPER(PERFIL.USU_DSCPFC)) AS DESC_PERFIL,
+    GRA.USU_CODGRA AS COD_GRADUACAO,
+    TRIM(UPPER(DGRA.USU_DESGRA)) AS DESC_GRADUACAO,
+    H.CONFIN AS CONSUMIDOR_FINAL,
+    C.CLICON AS CONTRIBUINTE_ICMS,
+    H.LIMAPR AS LIMITE_APROVADO,
+    TRUNC(H.DATLIM) AS DT_LIMITE_CREDITO,
+    H.VLRLIM AS VLR_LIMITE_CREDITO,
+    CPG.CODCPG AS COD_COND_PGTO,
+    TRIM(UPPER(CPG.DESCPG)) AS DESC_COND_PGTO,
+    FPG.CODFPG AS COD_FORMA_PGTO,
+    TRIM(UPPER(FPG.DESFPG)) AS DESC_FORMA_PGTO,
+    TRIM(UPPER(C.ENDCLI)) AS ENDERECO,
+    TRIM(UPPER(C.NENCLI)) AS NUMERO,
+    TRIM(UPPER(C.CPLEND)) AS COMPLEMENTO,
+    TRIM(UPPER(C.BAICLI)) AS BAIRRO,
+    LPAD(C.CEPCLI, 8, '0') AS CEP,
+    TRIM(UPPER(C.CIDCLI)) AS CIDADE_CLIENTE,
+    C.SIGUFS AS UF_CLIENTE,
+    CASE
+        WHEN TRIM(C.CPLEND) IS NOT NULL AND TRIM(C.CPLEND) <> ''
+        THEN TRIM(UPPER(C.ENDCLI || ', ' || C.NENCLI || ' (' || C.CPLEND || ') - ' || C.BAICLI || ', ' || C.CIDCLI || ', ' || C.SIGUFS || ', ' || LPAD(C.CEPCLI, 8, '0')))
+        ELSE TRIM(UPPER(C.ENDCLI || ', ' || C.NENCLI || ' - ' || C.BAICLI || ', ' || C.CIDCLI || ', ' || C.SIGUFS || ', ' || LPAD(C.CEPCLI, 8, '0')))
+    END AS ENDERECO_COMPLETO,
+    REGEXP_REPLACE(C.FONCLI, '[^0-9]', '') AS TELEFONE,
+    REGEXP_REPLACE(C.FONCL2, '[^0-9]', '') AS TELEFONE2,
+    TRIM(LOWER(C.INTNET)) AS EMAIL,
+    H.CODTRA AS COD_TRANSPORTADORA,
+    TRIM(UPPER(TRA.NOMTRA)) AS NOME_TRANSPORTADORA
+FROM {schema_bronze}.E085CLI C
+LEFT JOIN {schema_bronze}.E069GRE G ON C.CODGRE = G.CODGRE
+LEFT JOIN {schema_bronze}.E085CLI CLIBAS ON COALESCE(G.CLIBAS, C.CODCLI) = CLIBAS.CODCLI
+LEFT JOIN {schema_bronze}.E026RAM RAM ON C.CODRAM = RAM.CODRAM
+LEFT JOIN {schema_bronze}.E085HCL H ON H.CODCLI = C.CODCLI AND H.CODEMP = 1 AND H.CODFIL = 1
+LEFT JOIN {schema_bronze}.USU_T017RVR REG ON C.USU_CODRVR = REG.USU_CODRVR
+LEFT JOIN {schema_bronze}.USU_TPCRCPC GRA ON C.CODCLI = GRA.USU_CODCLI
+LEFT JOIN {schema_bronze}.USU_TPCRCDG DGRA ON GRA.USU_CODGRA = DGRA.USU_CODGRA
+LEFT JOIN {schema_bronze}.E066FPG FPG ON FPG.CODEMP = H.CODEMP AND FPG.CODFPG = H.CODFPG
+LEFT JOIN {schema_bronze}.E028CPG CPG ON CPG.CODEMP = H.CODEMP AND CPG.CODCPG = H.CODCPG
+LEFT JOIN {schema_bronze}.USU_TPCAPFC PERFIL ON PERFIL.USU_CODPFC = H.USU_CODPFC
+LEFT JOIN {schema_bronze}.USU_TPCAMNC MODNEG ON MODNEG.USU_CODMNC = H.USU_CODMNC
+LEFT JOIN {schema_bronze}.E073TRA TRA ON H.CODTRA = TRA.CODTRA
+LEFT JOIN VENDAS_CONSOLIDADAS_GRUPO V ON COALESCE(G.CLIBAS, C.CODCLI) = V.COD_CLI_BASE
+LEFT JOIN {schema_bronze}.E090REP R_PRI ON V.PRIMEIRO_REP_BASE = R_PRI.CODREP
+LEFT JOIN {schema_bronze}.E090REP R_ULT ON V.ULTIMO_REP_BASE = R_ULT.CODREP
+LEFT JOIN {schema_bronze}.E090REP R_ATU ON H.CODREP = R_ATU.CODREP
+"""
+
+# ----- EXTRAÇÃO -----
+
+engine = get_engine_prata()
+
+with engine.connect() as conn:
+    df = pd.read_sql(text(query), conn)
+
+df.columns = [col.upper() for col in df.columns]
+
+# ----- CARGA -----
+
+dtype_map = build_dtype_map(df)
+
+upsert(
+    engine,
+    df,
+    schema_prata,
+    tabela_destino,
+    query=query,
+    chaves_merge=["COD_CLIENTE"],
+    coluna_ordem="COD_CLIENTE DESC",
+    dtype_map=dtype_map,
+)
