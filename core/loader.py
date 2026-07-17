@@ -281,7 +281,7 @@ def full_reload(
     df: pd.DataFrame,
     schema: str,
     tabela: str,
-    chunksize: int = 10000,
+    chunksize: int = 50_000,
     dtype_map: dict | None = None,
 ) -> dict:
     """
@@ -443,7 +443,7 @@ def full_reload_streaming(
     schema: str,
     tabela: str,
     owner_origem: str = "SAPIENS",
-    chunksize: int = 100_000,
+    chunksize: int = 50_000,
     engine_escrita: Engine | None = None,
 ) -> dict:
     """
@@ -876,7 +876,7 @@ def carregar_bronze(
     query: str,
     chaves_pk: list[str],
     coluna_ordem: str | None = None,
-    chunksize: int = 100_000,
+    chunksize: int = 50_000,
     query_pks_completo: str | None = None,
     engine_escrita: Engine | None = None,
 ) -> dict:

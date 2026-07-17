@@ -49,20 +49,22 @@ TABELAS = [
         "chaves_pk": ["CODEMP", "CODFIL", "NUMPED", "SEQIPD"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": "Mesmo motivo do E140NFV -- ver observação completa ali.",
     },
     {
         "tabela": "E120PED",
         "chaves_pk": ["CODEMP", "CODFIL", "NUMPED"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
+        "tem_codfil": False,
         "observacao": (
             "ALERTA: QTDABE (qtd em aberto) muda conforme o pedido avança, "
             "sem DATGER necessariamente mudar -- pedido pode trocar de SITPED "
             "sem atualizar a data. Confirmar com o cliente antes de confiar "
-            "100% no incremental desta tabela na conferência Bronze."
+            "100% no incremental desta tabela na conferência Bronze. "
+            "CORRIGIDO em 17/07/2026: tem_codfil virou False -- mesmo motivo "
+            "do E140NFV, ver observação completa ali."
         ),
     },
     {
@@ -70,40 +72,56 @@ TABELAS = [
         "chaves_pk": ["CODEMP", "CODFIL", "CODSNF", "NUMNFV", "SEQIPV"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": "Mesmo motivo do E140NFV -- ver observação completa ali.",
     },
     {
         "tabela": "E140ISV",
         "chaves_pk": ["CODEMP", "CODFIL", "CODSNF", "NUMNFV", "SEQISV"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": "Mesmo motivo do E140NFV -- ver observação completa ali.",
     },
     {
         "tabela": "E140NFV",
         "chaves_pk": ["CODEMP", "CODFIL", "CODSNF", "NUMNFV"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": (
+            "CORRIGIDO em 17/07/2026: tem_codfil estava True, filtrando "
+            "CODFIL=1 na extração -- mas nenhum dos scripts legados que usam "
+            "esta tabela (vbicliente.py, vbifaturamento.py) filtra CODFIL, só "
+            "CODEMP=1 (CODFIL só aparece em JOIN e como coluna de saída "
+            "CODFILIAL). O filtro indevido fazia a Bronze descartar notas de "
+            "outras filiais da empresa 1, causando divergência real na "
+            "conferência do DIM_CLIENTE (nota de 2018 sob CODFIL=2 sumia da "
+            "Bronze, deslocando o ranking de 1ª/2ª/3ª/4ª compra do cliente). "
+            "tem_codfil virou False; tem_codemp continua True. Mesmo ajuste "
+            "replicado em E120IPD, E120PED, E140IPV, E140ISV, E440IPC e "
+            "E440NFC (as outras 6 das 7 grandes/transacionais, pelo mesmo "
+            "motivo -- nenhuma delas é filtrada por CODFIL no legado). "
+            "Requer dropar a tabela na DW_BRONZE e deixar a próxima execução "
+            "refazer a 1ª carga do zero, já com o escopo correto (mesmo "
+            "procedimento do fix do USU_T101MET)."
+        ),
     },
     {
         "tabela": "E440IPC",
         "chaves_pk": ["CODEMP", "CODFIL", "CODFOR", "NUMNFC", "CODSNF", "SEQIPC"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": "Mesmo motivo do E140NFV -- ver observação completa ali.",
     },
     {
         "tabela": "E440NFC",
         "chaves_pk": ["CODEMP", "CODFIL", "CODFOR", "NUMNFC", "CODSNF"],
         "coluna_data": "DATGER",
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": "Mesmo motivo do E140NFV -- ver observação completa ali.",
     },
 
     # ===== DIMENSÕES COM CODEMP (confirmado via ALL_TAB_COLUMNS) =====
@@ -169,10 +187,19 @@ TABELAS = [
         "chaves_pk": ["CODCLI", "CODEMP", "CODFIL"],
         "coluna_data": None,
         "tem_codemp": True,
-        "tem_codfil": True,
+        "tem_codfil": False,
         "observacao": (
             "Nome sugere histórico -- confirmar na conferência Bronze se é "
-            "1 linha por cliente/filial ou se pode ter mais de uma."
+            "1 linha por cliente/filial ou se pode ter mais de uma. "
+            "CORRIGIDO em 17/07/2026 (3): tem_codfil virou False -- usada "
+            "com 2 escopos diferentes nos scripts Prata: DIM_CLIENTE fixa "
+            "'AND H.CODFIL = 1' no próprio JOIN (continua batendo, filtro "
+            "está na query, não na Bronze), mas FAT_FATURAMENTO casa "
+            "dinamicamente pela filial de cada linha ('I.CODFIL = H.CODFIL') "
+            "-- com a Bronze só trazendo filial 1, notas de outra filial "
+            "perdiam o enriquecimento (representante etc.). Mesmo motivo "
+            "raiz do E140NFV: Bronze deve trazer o universo completo, quem "
+            "decide o escopo de filial é a query consumidora."
         ),
     },
     {
@@ -180,16 +207,28 @@ TABELAS = [
         "chaves_pk": ["CODEMP", "CODFIL", "CODSNF", "NUMNFV"],
         "coluna_data": None,
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": (
+            "CORRIGIDO em 17/07/2026 (3): tem_codfil estava True, mas o JOIN "
+            "com essa tabela em DIM_CLIENTE ('ON NF.CODEMP = I.CODEMP AND "
+            "NF.NUMNFV = I.NUMNFV') e em FAT_FATURAMENTO ('AND I.CODFIL = "
+            "IDE.CODFIL', casando pela filial da própria nota) nunca "
+            "restringiu a filial 1 -- igual no legado. Com a Bronze filtrada, "
+            "nota de outra filial perdia o INNER JOIN (DIM_CLIENTE) ou caía "
+            "no filtro IDE.SITDOE=3 por causa do LEFT JOIN vindo NULL "
+            "(FAT_FATURAMENTO) -- em ambos os casos a linha sumia. Achado na "
+            "conferência do DIM_CLIENTE depois do fix do E140NFV: resolveu "
+            "os primeiros 92% da divergência, mas sobrou um resíduo estável "
+            "(sempre os mesmos ~2.266 clientes) que apontou pra esse JOIN."
+        ),
     },
     {
         "tabela": "E140PVD",
         "chaves_pk": ["CODEMP", "CODFIL", "CODSNF", "NUMNFV", "SEQIPV"],
         "coluna_data": None,
         "tem_codemp": True,
-        "tem_codfil": True,
-        "observacao": None,
+        "tem_codfil": False,
+        "observacao": "Mesmo motivo do E085HCL -- JOIN dinâmico por filial em FAT_FATURAMENTO, sem restrição a filial 1 no legado.",
     },
 
     # ===== DIMENSÕES GLOBAIS — SEM CODEMP (confirmado via ALL_TAB_COLUMNS) =====
