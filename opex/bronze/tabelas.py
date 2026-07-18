@@ -82,7 +82,7 @@ TABELAS = [
     {
         "tabela": "E044CCU",
         "chaves_pk": ["CODEMP", "CODCCU"],
-        "coluna_data": "DATALT",
+        "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
         "observacao": (
@@ -95,16 +95,40 @@ TABELAS = [
             "MESMA DW_BRONZE.E044CCU (schema único). CONFIRMADO em "
             "18/07/2026: os dois servidores têm o dado espelhado (a "
             "contagem por CODEMP bate 100% nos dois lados, 12 empresas). "
-            "Ver observação completa em producao/bronze/tabelas.py."
+            "Ver observação completa em producao/bronze/tabelas.py. "
+            "CORRIGIDO em 18/07/2026 (2): coluna_data virou None -- DATALT "
+            "fica NULL em linha nova (364 linhas confirmadas via "
+            "auditoria, mesmo número nos dois servidores) e a tabela NÃO "
+            "tem nenhuma outra coluna de data (sem DATGER/HORGER "
+            "equivalente, confirmado via amostra de linhas) -- sem "
+            "fallback possível, igual ao caso do E085CLI no Comercial. "
+            "Tabela pequena (~1.300 linhas no universo completo), custo "
+            "de reler tudo a cada ciclo é desprezível."
         ),
     },
     {
         "tabela": "E043PCM",
         "chaves_pk": ["CODMPC", "CTARED"],
         "coluna_data": "DATALT",
+        "coluna_data_fallback": "DATGER",
         "tem_codemp": False,
         "coluna_codemp": None,
-        "observacao": "Plano de contas. Tabela global -- sem CODEMP (confirmado via ALL_TAB_COLUMNS em 07/07/2026).",
+        "observacao": (
+            "Plano de contas. Tabela global -- sem CODEMP (confirmado via "
+            "ALL_TAB_COLUMNS em 07/07/2026). CORRIGIDO em 18/07/2026: "
+            "DATALT fica NULL em linha nova (94% da tabela -- 290.752 de "
+            "310.072 linhas -- confirmado via auditoria; a maioria das "
+            "contas nunca é editada depois de criada). Achado via "
+            "conferência da Prata: 1 conta gerada em 18/07/2026 (junto "
+            "com um cliente novo) nunca apareceu na Bronze porque DATALT "
+            "nunca é preenchido na criação, só numa edição futura -- linha "
+            "ficava fora da janela de 60 dias pra sempre. "
+            "coluna_data_fallback='DATGER' faz o filtro incremental virar "
+            "NVL(DATALT, DATGER) -- confirmado que DATGER nunca é NULL "
+            "junto com DATALT (0 linhas com os dois nulos). Mesmo "
+            "mecanismo aplicado no E028CPG do Comercial -- ver "
+            "doc_nova_arquitetura.md."
+        ),
     },
     {
         "tabela": "R910USU",

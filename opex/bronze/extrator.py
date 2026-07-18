@@ -75,6 +75,14 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
 
     Na carga incremental (não é a 1ª carga E a tabela tem coluna_data
     definida no catálogo), adiciona o filtro de janela de 60 dias.
+
+    coluna_data_fallback (opcional, ex.: E043PCM): quando a coluna de
+    auditoria (coluna_data) pode ficar NULL em linha nova (só é
+    preenchida numa edição futura, nunca na criação), o filtro vira
+    NVL(coluna_data, coluna_data_fallback) -- usa a data de geração
+    quando não existe data de alteração ainda, em vez de deixar a linha
+    permanentemente fora da janela incremental. Bug real encontrado em
+    18/07/2026 -- ver doc_nova_arquitetura.md.
     """
     tabela = info["tabela"]
     filtros = []
@@ -85,9 +93,14 @@ def montar_query(info: dict, primeira_carga: bool) -> str:
         filtros.append(f"{coluna_codemp} IN ({valores})")
 
     if not primeira_carga and info["coluna_data"]:
-        filtros.append(
-            f"{info['coluna_data']} >= SYSDATE - {JANELA_INCREMENTAL_DIAS}"
-        )
+        coluna_data = info["coluna_data"]
+        fallback = info.get("coluna_data_fallback")
+        if fallback:
+            filtros.append(
+                f"NVL({coluna_data}, {fallback}) >= SYSDATE - {JANELA_INCREMENTAL_DIAS}"
+            )
+        else:
+            filtros.append(f"{coluna_data} >= SYSDATE - {JANELA_INCREMENTAL_DIAS}")
 
     if filtros:
         where = " AND ".join(filtros)

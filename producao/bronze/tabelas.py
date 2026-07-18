@@ -62,7 +62,7 @@ TABELAS = [
     {
         "tabela": "E044CCU",
         "chaves_pk": ["CODEMP", "CODCCU"],
-        "coluna_data": "DATALT",
+        "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
         "tem_codfil": False,
@@ -75,14 +75,22 @@ TABELAS = [
             "separadas como se pensava antes -- os dois servidores têm "
             "os centros de custo espelhados/sincronizados (contagem por "
             "CODEMP bate 100% nos dois lados, todas as 12 empresas). "
-            "Bug real encontrado: a limpeza de órfãos da Produção (que só "
-            "enxerga CODEMP=1) apagou as 244 linhas de CODEMP=50 que só o "
-            "OPEX consegue trazer, achando que eram órfãs. Corrigido em "
-            "core/loader.py (remover_orfaos()/remover_orfaos_cross_"
-            "servidor() agora escopam o DELETE ao filtro de quem chama, "
-            "nunca tocam fora dele) -- ver doc_nova_arquitetura.md. Mesmo "
-            "caso do R910USU no Laudos RMA. Estrutura validada "
-            "independentemente em 08/07/2026."
+            "Bug real encontrado (1): a limpeza de órfãos da Produção "
+            "(que só enxerga CODEMP=1) apagou as 244 linhas de CODEMP=50 "
+            "que só o OPEX consegue trazer, achando que eram órfãs. "
+            "Corrigido em core/loader.py (remover_orfaos()/remover_orfaos_"
+            "cross_servidor() agora escopam o DELETE ao filtro de quem "
+            "chama, nunca tocam fora dele) -- ver doc_nova_arquitetura.md. "
+            "Bug real encontrado (2): coluna_data virou None -- DATALT "
+            "fica NULL em linha nova (364 linhas confirmadas via "
+            "auditoria, mesmo número nos dois servidores) e a tabela NÃO "
+            "tem nenhuma outra coluna de data (sem DATGER/HORGER "
+            "equivalente, confirmado via amostra de linhas) -- sem "
+            "fallback possível, igual ao caso do E085CLI no Comercial. "
+            "Tabela pequena (~1.300 linhas no universo completo), custo "
+            "de reler tudo a cada ciclo é desprezível. Mesmo caso do "
+            "R910USU no Laudos RMA. Estrutura validada independentemente "
+            "em 08/07/2026."
         ),
     },
     {

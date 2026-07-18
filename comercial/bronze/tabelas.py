@@ -154,9 +154,19 @@ TABELAS = [
         "tabela": "E028CPG",
         "chaves_pk": ["CODEMP", "CODCPG"],
         "coluna_data": "DATATU",
+        "coluna_data_fallback": "DATGER",
         "tem_codemp": True,
         "tem_codfil": False,
-        "observacao": "DATATU já usada como 'última atualização' em vbicondpgto.py.",
+        "observacao": (
+            "DATATU já usada como 'última atualização' em vbicondpgto.py. "
+            "CORRIGIDO em 18/07/2026: DATATU fica NULL em linha nova (só é "
+            "preenchida numa edição futura) -- confirmado via auditoria "
+            "projeto-inteiro (6 linhas com DATATU NULL, todas com DATGER "
+            "preenchido). coluna_data_fallback='DATGER' faz o filtro "
+            "incremental virar NVL(DATATU, DATGER) -- linha nova nunca mais "
+            "fica presa fora da janela de 60 dias. Mesmo mecanismo aplicado "
+            "no E043PCM do OPEX -- ver doc_nova_arquitetura.md."
+        ),
     },
     {
         "tabela": "E066FPG",
