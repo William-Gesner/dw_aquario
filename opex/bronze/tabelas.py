@@ -90,7 +90,12 @@ TABELAS = [
             "explicitamente nesta tabela (só herdava via JOIN com "
             "USU_T650ORC) -- na Bronze filtramos CODEMP IN (1,50) "
             "explicitamente, para garantir que os centros de custo das "
-            "duas empresas fiquem disponíveis para a Prata."
+            "duas empresas fiquem disponíveis para a Prata. MESMO NOME "
+            "que a tabela do catálogo da Produção -- as duas gravam na "
+            "MESMA DW_BRONZE.E044CCU (schema único). CONFIRMADO em "
+            "18/07/2026: os dois servidores têm o dado espelhado (a "
+            "contagem por CODEMP bate 100% nos dois lados, 12 empresas). "
+            "Ver observação completa em producao/bronze/tabelas.py."
         ),
     },
     {
@@ -111,7 +116,10 @@ TABELAS = [
             "Tabela de usuários do sistema (mesmo padrão de R999USU no "
             "Comercial) -- sem CODEMP (confirmado via ALL_TAB_COLUMNS em "
             "07/07/2026). Usada para resolver nome do dono/coordenador do "
-            "centro de custo (join duplo no vbiopex.py legado)."
+            "centro de custo (join duplo no vbiopex.py legado). MESMO "
+            "NOME que a tabela do catálogo do Laudos RMA -- as duas "
+            "gravam na MESMA DW_BRONZE.R910USU (schema único). Ver "
+            "observação completa em laudos_rma/bronze/tabelas.py."
         ),
     },
 

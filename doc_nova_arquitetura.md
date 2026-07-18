@@ -108,6 +108,14 @@ As 9 tabelas corrigidas mudam o universo de dados que a Bronze vai trazer (mais 
 
 Como a Prata dessas áreas ainda não existe, não há impacto em nenhum Power BI de produção agora — esta correção deixa a Bronze pronta e validada **antes** de a Prata ser construída em cima dela, evitando repetir o mesmo ciclo de bugs (achar na conferência da Prata, bem mais tarde) que aconteceu no Comercial.
 
+### Bug lateral encontrado durante o rollout: `remover_orfaos_cross_servidor()` sem `dtype` no staging (18/07/2026)
+
+Ao rodar `--sweep-orfaos` no OPEX pela primeira vez desde essa correção, `USU_T650ORC` deu `ORA-00932: inconsistent datatypes: expected - got CLOB` no `DELETE` da varredura de órfãos. Causa: `remover_orfaos_cross_servidor()` (`core/loader.py`) grava a tabela de staging via `df_pks.to_sql(...)` **sem** passar `dtype=` — o pandas então deixa o SQLAlchemy inferir o tipo, e qualquer coluna de texto vira `CLOB` no Oracle (independente do tamanho real do conteúdo), enquanto a tabela `DW_BRONZE` já existente tem essa mesma coluna como `VARCHAR2`. Comparar `CLOB = VARCHAR2` no `WHERE` do `DELETE` estoura.
+
+Não é o mesmo bug do `tem_codfil` — é um problema de infraestrutura isolado, sem relação com filial. Confirmado que é o único ponto cego: das 5 chamadas `.to_sql()` que existem em todo o projeto (todas em `core/loader.py`), só essa (a de `remover_orfaos_cross_servidor()`) não passava `dtype=dtype_map` — a função irmã `upsert_cross_servidor()` (usada pra carga normal do OPEX, já rodada com sucesso várias vezes) sempre fez isso certo. Faz sentido esse ser o ponto cego: a varredura de órfãos cross-servidor só roda 1x por dia (última execução, flag `--sweep-orfaos`), então é o caminho de código menos exercitado do projeto — essa foi a primeira vez que rodou de fato contra o OPEX.
+
+**Corrigido**: adicionado `dtype_map = build_dtype_map(df_pks)` antes do `to_sql()`, com `dtype=dtype_map` passado — mesmo padrão já usado nas outras 4 chamadas.
+
 ---
 
 ## Pontos de atenção por tabela (Comercial)

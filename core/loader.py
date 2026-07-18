@@ -622,12 +622,28 @@ def remover_orfaos(
     aparecer em lugar nenhum desse universo; qualquer linha que ainda
     exista no Sapiens (de qualquer data) nunca é tocada.
 
+    IMPORTANTE -- tabelas com mais de um escritor (ex.: E044CCU e
+    R910USU, gravadas tanto pela Produção/Laudos RMA quanto pelo OPEX,
+    cada um a partir de um servidor Oracle diferente -- ver observação
+    correspondente em cada catálogo): o DELETE só pode considerar
+    candidatas as linhas que estão dentro do próprio filtro de quem está
+    chamando (extraído do WHERE de query_pks_completo, se houver) --
+    senão, uma área cujo filtro nunca inclui a fatia da outra (ex.:
+    Produção só vê CODEMP=1, nunca CODEMP=50) apagaria como "órfã" um
+    dado que é legítimo, só que fora do seu próprio universo. Bug real
+    encontrado em 18/07/2026: a limpeza da Produção apagou 244 linhas de
+    CODEMP=50 do E044CCU que só o OPEX consegue trazer.
+
     Returns:
         Quantidade de linhas removidas (0 se nenhuma).
     """
     condicao_merge = " AND ".join(
         [f"DEST.{col} = SRC.{col}" for col in chaves_pk]
     )
+
+    filtro_escopo = ""
+    if " WHERE " in query_pks_completo:
+        filtro_escopo = "  AND " + query_pks_completo.split(" WHERE ", 1)[1].strip() + "\n"
 
     delete_sql = f"""
 DELETE FROM {schema}.{tabela} DEST
@@ -638,7 +654,7 @@ WHERE NOT EXISTS (
     ) SRC
     WHERE {condicao_merge}
 )
-"""
+{filtro_escopo}"""
 
     with engine.begin() as conn:
         resultado = conn.execute(text(delete_sql))
@@ -821,6 +837,10 @@ def remover_orfaos_cross_servidor(
     diferentes -- mesma lógica (só remove PK que não existe em lugar
     nenhum do universo completo da origem), só que via staging no destino
     em vez de subquery remota (ver nota no topo desta seção).
+
+    Mesma proteção de escopo que remover_orfaos() -- ver docstring dela
+    pro caso real (E044CCU/R910USU, escritos tanto pelo servidor
+    principal quanto pela Controladoria via este engine cross-servidor).
     """
     with engine_leitura.connect() as conn:
         df_pks = pd.read_sql(text(query_pks_completo), conn)
@@ -832,6 +852,8 @@ def remover_orfaos_cross_servidor(
         with engine_escrita.begin() as conn:
             conn.execute(text(f"DROP TABLE {schema}.{staging}"))
 
+    dtype_map = build_dtype_map(df_pks)
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         df_pks.to_sql(
@@ -840,9 +862,14 @@ def remover_orfaos_cross_servidor(
             schema=schema,
             if_exists="fail",
             index=False,
+            dtype=dtype_map,
         )
 
     condicao_merge = " AND ".join([f"DEST.{col} = SRC.{col}" for col in chaves_pk])
+
+    filtro_escopo = ""
+    if " WHERE " in query_pks_completo:
+        filtro_escopo = "  AND " + query_pks_completo.split(" WHERE ", 1)[1].strip() + "\n"
 
     delete_sql = f"""
 DELETE FROM {schema}.{tabela} DEST
@@ -851,7 +878,7 @@ WHERE NOT EXISTS (
     FROM {schema}.{staging} SRC
     WHERE {condicao_merge}
 )
-"""
+{filtro_escopo}"""
 
     try:
         with engine_escrita.begin() as conn:

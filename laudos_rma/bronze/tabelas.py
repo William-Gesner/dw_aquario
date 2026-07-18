@@ -135,13 +135,20 @@ TABELAS = [
         "tem_codfil": False,
         "observacao": (
             "Tabela de usuários do sistema. MESMO NOME que a tabela usada "
-            "no OPEX, mas ali vem do banco de Controladoria (servidor "
-            "separado) -- aqui vem do servidor principal (mesmo do "
-            "Comercial). São instâncias físicas diferentes, cada uma com "
-            "sua própria cópia na Bronze -- não é a mesma linha de código "
-            "nem a mesma tabela de origem, mesmo com nome idêntico. "
-            "Estrutura validada independentemente em 07/07/2026 (sem "
-            "CODEMP, igual à versão da Controladoria)."
+            "no OPEX -- aqui a query lê do servidor principal, lá lê da "
+            "Controladoria, mas as DUAS gravam na MESMA tabela física "
+            "DW_BRONZE.R910USU (schema único do projeto). ATUALIZADO em "
+            "18/07/2026: a hipótese anterior ('cada uma com sua própria "
+            "cópia na Bronze') estava errada -- confirmado no E044CCU "
+            "(mesmo padrão, mesmo par de áreas) que os dois servidores "
+            "têm o dado espelhado/sincronizado, não duplicado por "
+            "acidente. Risco real: a limpeza de órfãos de uma área "
+            "apagando silenciosamente o que só a outra escreve -- "
+            "corrigido preventivamente em core/loader.py (DELETE agora "
+            "escopado ao filtro de quem chama) mesmo sem esse caso "
+            "específico ter estourado ainda aqui. Estrutura validada "
+            "independentemente em 07/07/2026 (sem CODEMP, igual à versão "
+            "da Controladoria)."
         ),
     },
     {

@@ -67,12 +67,22 @@ TABELAS = [
         "coluna_codemp": "CODEMP",
         "tem_codfil": False,
         "observacao": (
-            "Centros de custo. MESMO NOME que a tabela usada no OPEX, mas "
-            "ali vem do banco de Controladoria (servidor separado) -- "
-            "aqui vem do servidor principal (mesmo do Comercial/Laudos "
-            "RMA). São instâncias físicas diferentes, cada uma com sua "
-            "própria cópia na Bronze -- mesmo caso do R910USU no Laudos "
-            "RMA. Estrutura validada independentemente em 08/07/2026."
+            "Centros de custo. MESMO NOME que a tabela usada no OPEX -- "
+            "aqui a query lê do servidor principal (CODEMP=1), lá lê da "
+            "Controladoria (CODEMP IN (1,50)), mas as DUAS gravam na "
+            "MESMA tabela física DW_BRONZE.E044CCU (schema único do "
+            "projeto). CONFIRMADO em 18/07/2026: NÃO são cópias "
+            "separadas como se pensava antes -- os dois servidores têm "
+            "os centros de custo espelhados/sincronizados (contagem por "
+            "CODEMP bate 100% nos dois lados, todas as 12 empresas). "
+            "Bug real encontrado: a limpeza de órfãos da Produção (que só "
+            "enxerga CODEMP=1) apagou as 244 linhas de CODEMP=50 que só o "
+            "OPEX consegue trazer, achando que eram órfãs. Corrigido em "
+            "core/loader.py (remover_orfaos()/remover_orfaos_cross_"
+            "servidor() agora escopam o DELETE ao filtro de quem chama, "
+            "nunca tocam fora dele) -- ver doc_nova_arquitetura.md. Mesmo "
+            "caso do R910USU no Laudos RMA. Estrutura validada "
+            "independentemente em 08/07/2026."
         ),
     },
     {
