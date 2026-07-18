@@ -20,7 +20,11 @@ Cada entrada descreve:
 
 REGRA DE EMPRESA/FILIAL: igual ao resto do projeto -- CODEMP = 1 e
 CODFIL = 1 sempre (ver estoque.config.settings). Sem exceção aqui
-(diferente do OPEX).
+(diferente do OPEX). ATENÇÃO -- isso é o escopo de NEGÓCIO da empresa,
+não uma instrução para a Bronze filtrar CODFIL na extração: ver Regra 6
+do doc_nova_arquitetura.md e a correção de 17/07/2026 em E420IPO/E420OCP
+abaixo (tem_codfil virou False -- o legado nunca fixava filial nessas
+duas tabelas).
 
 TABELAS COMPARTILHADAS COM O COMERCIAL -- NÃO EXTRAÍDAS AQUI:
     O Estoque também depende de E075DER, E075PRO, E095FOR (usadas em
@@ -53,7 +57,7 @@ TABELAS = [
         "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "CODFIL",
         "observacao": (
             "Item da ordem de compra (fato principal do vbicompras.py "
@@ -65,7 +69,13 @@ TABELAS = [
             "entrega, geração, validade), podem não mudar quando outros "
             "campos (QTDREC, QTDABE, SITIPO) são atualizados em um "
             "recebimento parcial -- mesmo risco já documentado para o "
-            "QTDABE do E120PED no Comercial. full_reload sempre."
+            "QTDABE do E120PED no Comercial. full_reload sempre. "
+            "CORRIGIDO em 17/07/2026: tem_codfil virou False -- "
+            "vbicompras.py legado (WHERE T0.SITIPO IN ('1','2')) não tem "
+            "NENHUM filtro de CODEMP/CODFIL; CODFIL só aparece no JOIN "
+            "com E420OCP (T0.CODFIL = T1.CODFIL, casamento dinâmico, "
+            "nunca fixado em 1). Mesmo padrão de bug já corrigido no "
+            "Comercial -- ver Regra 6 do doc_nova_arquitetura.md."
         ),
     },
     {
@@ -74,7 +84,7 @@ TABELAS = [
         "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "CODFIL",
         "observacao": (
             "Cabeçalho da ordem de compra. PK real confirmada em "
@@ -82,7 +92,10 @@ TABELAS = [
             "confiável -- DATEMI é a data de emissão (fixa na criação), "
             "DATFEC só é preenchida no fechamento e não necessariamente "
             "muda em toda atualização (ex.: SITOCP mudando por "
-            "recebimento parcial sem fechar a OC). full_reload sempre."
+            "recebimento parcial sem fechar a OC). full_reload sempre. "
+            "CORRIGIDO em 17/07/2026: mesmo motivo do E420IPO -- "
+            "vbicompras.py legado nunca fixa CODFIL, só casa "
+            "dinamicamente com E420IPO no JOIN."
         ),
     },
     {

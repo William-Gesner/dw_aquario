@@ -23,7 +23,12 @@ Cada entrada descreve:
 
 REGRA DE EMPRESA/FILIAL: igual ao resto do projeto -- CODEMP = 1 e
 CODFIL = 1 sempre (ver laudos_rma.config.settings). Sem exceção aqui
-(diferente do OPEX).
+(diferente do OPEX). ATENÇÃO -- isso é o escopo de NEGÓCIO da empresa
+(CODEMP), não uma instrução para a Bronze filtrar CODFIL na extração:
+ver Regra 6 do doc_nova_arquitetura.md e a correção de 17/07/2026 em
+USU_TLAUITE/USU_TLAUGER/USU_VZRASLAU abaixo (tem_codfil virou False --
+vbilaudos.py legado sempre casava filial dinamicamente, nunca fixava
+em 1).
 
 TABELAS COMPARTILHADAS COM O COMERCIAL -- NÃO EXTRAÍDAS AQUI:
     O Laudos RMA também depende de E440NFC, E095FOR, E075PRO, E075DER,
@@ -48,14 +53,21 @@ TABELAS = [
         "coluna_data": "USU_DATALT",
         "tem_codemp": True,
         "coluna_codemp": "USU_CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "USU_CODFIL",
         "observacao": (
             "Item do laudo (fato principal do vbilaudos.py legado). A query "
             "legada NÃO filtrava USU_CODEMP explicitamente (só herdava via "
             "JOIN) -- mesmo caso do E044CCU no OPEX. Filtramos "
-            "USU_CODEMP=1/USU_CODFIL=1 explicitamente na Bronze, seguindo "
-            "a regra estrutural do projeto."
+            "USU_CODEMP=1 explicitamente na Bronze, seguindo a regra "
+            "estrutural do projeto. CORRIGIDO em 17/07/2026: tem_codfil "
+            "virou False -- vbilaudos.py legado não tem NENHUM filtro de "
+            "USU_CODFIL no WHERE (só filtra T6.DATENT >= 01/01/2023); "
+            "USU_CODFIL só aparece em JOINs dinâmicos (T0.USU_CODFIL = "
+            "T1.USU_CODFIL com USU_TLAUGER, T0.USU_CODFIL = T15.FILNFV "
+            "com USU_VZRASLAU), nunca fixado em 1. Mesmo padrão de bug já "
+            "corrigido no Comercial -- ver Regra 6 do "
+            "doc_nova_arquitetura.md."
         ),
     },
     {
@@ -64,9 +76,14 @@ TABELAS = [
         "coluna_data": "USU_DATALT",
         "tem_codemp": True,
         "coluna_codemp": "USU_CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "USU_CODFIL",
-        "observacao": "Cabeçalho do laudo. Mesma observação de USU_TLAUITE quanto ao filtro de empresa.",
+        "observacao": (
+            "Cabeçalho do laudo. Mesma observação de USU_TLAUITE quanto ao "
+            "filtro de empresa. CORRIGIDO em 17/07/2026: mesmo motivo do "
+            "USU_TLAUITE -- vbilaudos.py legado casa USU_CODFIL "
+            "dinamicamente (T0.USU_CODFIL = T1.USU_CODFIL), nunca fixa em 1."
+        ),
     },
     {
         "tabela": "USU_TLAUDEF",
@@ -133,7 +150,7 @@ TABELAS = [
         "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "EMPNFV",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "FILNFV",
         "observacao": (
             "É VIEW no Sapiens, sem PK física -- confirmado via "
@@ -144,7 +161,18 @@ TABELAS = [
             "Rastreabilidade, ela reaproveita esta mesma tabela na Bronze, "
             "não precisa duplicar. Colunas de empresa/filial não seguem o "
             "padrão CODEMP/CODFIL nem USU_CODEMP/USU_CODFIL -- são EMPNFV/"
-            "FILNFV (nomes herdados do join com nota fiscal de venda)."
+            "FILNFV (nomes herdados do join com nota fiscal de venda). "
+            "CORRIGIDO em 17/07/2026: tem_codfil virou False -- em "
+            "vbilaudos.py, o JOIN com USU_VZRASLAU casa "
+            "T0.USU_CODFIL = T15.FILNFV dinamicamente (T0 = USU_TLAUITE, "
+            "sem filtro fixo de filial); em vbirastreabilidade.py "
+            "(consumidor futuro desta mesma tabela), o casamento com "
+            "QRC/PVD também é dinâmico (QRC.USU_CODFIL = PVD.FILNFV), mas "
+            "ali IPV.CODFIL=1 já está fixado no WHERE -- ou seja, o "
+            "escopo de filial é decidido pela query CONSUMIDORA em cada "
+            "caso, não pela Bronze. Ver também USU_T140QRC na "
+            "Rastreabilidade (caso em que tem_codfil=True é correto, por "
+            "causa dessa mesma dinâmica vista do outro lado)."
         ),
     },
 

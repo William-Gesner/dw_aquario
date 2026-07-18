@@ -25,6 +25,11 @@ CODFIL = 1 sempre (ver producao.config.settings). Sem exceção aqui
 explicitamente nessas tabelas (exceto E720OPR/E725CRE, que já vinham
 filtradas em vbicentrocusto.py) -- aplicamos o filtro estrutural do
 projeto mesmo assim, mesma política já usada no OPEX e no Laudos RMA.
+ATENÇÃO -- isso é o escopo de NEGÓCIO da empresa (CODEMP), não uma
+instrução para a Bronze filtrar CODFIL na extração: ver Regra 6 do
+doc_nova_arquitetura.md e a correção de 17/07/2026 em E210MVP/E621MTC/
+E900COP/E930MPR abaixo (tem_codfil virou False -- vbidesempenho.py
+legado nunca fixava filial nessas 4 tabelas).
 
 TABELAS COMPARTILHADAS COM O COMERCIAL -- NÃO EXTRAÍDAS AQUI:
     A Produção também depende de E012FAM, E013AGP, E075DER, E075PRO
@@ -94,12 +99,17 @@ TABELAS = [
         "coluna_data": "DATMOV",
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "CODFIL",
         "observacao": (
             "Movimentação de produtos (consumo de matéria-prima). Tabela "
             "grande (~140 colunas na origem) -- full_reload_streaming na "
-            "1ª carga, mesmo tratamento do E120IPD no Comercial."
+            "1ª carga, mesmo tratamento do E120IPD no Comercial. "
+            "CORRIGIDO em 17/07/2026: tem_codfil virou False -- bloco "
+            "TIPTAB=2 (CONSUMO) de vbidesempenho.py legado nunca referencia "
+            "CODFIL do E210MVP em nenhum JOIN ou WHERE (só CODEMP, via "
+            "T0.CODEMP nos JOINs). Mesmo padrão de bug já corrigido no "
+            "Comercial -- ver Regra 6 do doc_nova_arquitetura.md."
         ),
     },
     {
@@ -108,13 +118,17 @@ TABELAS = [
         "coluna_data": "DATATU",
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "CODFIL",
         "observacao": (
             "Mapa de cálculo (orçamento/custo). PK real é só NUMMTC "
             "(confirmado via ALL_CONS_COLUMNS em 08/07/2026) -- CODEMP e "
-            "CODFIL existem como coluna mas não fazem parte da PK. Filtro "
-            "estrutural aplicado mesmo assim na extração (não no MERGE)."
+            "CODFIL existem como coluna mas não fazem parte da PK. "
+            "CORRIGIDO em 17/07/2026: tem_codfil virou False -- "
+            "vbidesempenho.py legado usa E621MTC em 2 pontos (subconsulta "
+            "TAXREA no bloco TIPTAB=1, e JOIN no bloco TIPTAB=4), nenhum "
+            "dos dois referencia CODFIL -- só CODEMP e NUMMTC. Mesmo "
+            "padrão de bug já corrigido no Comercial."
         ),
     },
     {
@@ -168,9 +182,16 @@ TABELAS = [
         "coluna_data": "DATGER",
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "CODFIL",
-        "observacao": "Cabeçalho da ordem de produção.",
+        "observacao": (
+            "Cabeçalho da ordem de produção. CORRIGIDO em 17/07/2026: "
+            "tem_codfil virou False -- vbidesempenho.py legado junta "
+            "E900COP (como T0) em 2 blocos (TIPTAB=1 e TIPTAB=2) só por "
+            "CODEMP+CODORI+NUMORP, nunca por CODFIL (a tabela nem tem "
+            "coluna CODFIL referenciada na query). Mesmo padrão de bug já "
+            "corrigido no Comercial."
+        ),
     },
     {
         "tabela": "E900EOQ",
@@ -227,9 +248,16 @@ TABELAS = [
         "coluna_data": "DATMPR",
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
-        "tem_codfil": True,
+        "tem_codfil": False,
         "coluna_codfil": "CODFIL",
-        "observacao": "Histórico de paradas de equipamento/centro de recurso.",
+        "observacao": (
+            "Histórico de paradas de equipamento/centro de recurso. "
+            "CORRIGIDO em 17/07/2026: tem_codfil virou False -- bloco "
+            "TIPTAB=3 (PARADAS) de vbidesempenho.py legado (WHERE "
+            "T0.DATMPR > data_corte) não filtra CODFIL nenhum, nem no "
+            "WHERE nem nos JOINs (E018MTV, E093ETG, E044CCU casam só por "
+            "CODEMP). Mesmo padrão de bug já corrigido no Comercial."
+        ),
     },
 
 ]
