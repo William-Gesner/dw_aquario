@@ -289,6 +289,26 @@ TABELAS_COMPARTILHADAS_COM_COMERCIAL = [
 ]
 
 
+# ----- TABELAS COM MAIS DE UM ESCRITOR NA BRONZE -----
+#
+# Diferente de TABELAS_COMPARTILHADAS_COM_COMERCIAL (onde a Produção só
+# DEPENDE, sem extrair): as tabelas abaixo SÃO extraídas aqui de
+# propósito, em paralelo com outra área, pro MESMO destino na Bronze --
+# porque cada uma só consegue ver uma fatia dos dados (servidor Oracle
+# diferente). Ver observação de cada tabela pra detalhe completo, e
+# doc_nova_arquitetura.md pro caso real encontrado em 18/07/2026 (bug de
+# limpeza de órfãos apagando a fatia da outra área -- corrigido em
+# core/loader.py).
+#
+# Usado por conferencias/dw_bronze/conferencia_producao.py: nessas
+# tabelas, Bronze > universo próprio da Produção é ESPERADO (a fatia
+# extra vem da outra área) -- só Bronze < universo próprio é erro de
+# verdade.
+TABELAS_MULTI_ESCRITOR = {
+    "E044CCU": "OPEX também extrai esta tabela (CODEMP=50, via Controladoria) -- ver observação da tabela.",
+}
+
+
 # ----- FUNÇÃO AUXILIAR -----
 
 def buscar_tabela(nome: str) -> dict:

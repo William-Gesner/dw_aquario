@@ -33,7 +33,7 @@ import traceback
 from sqlalchemy import text
 
 from producao.bronze.extrator import TABELAS_DESTE_BLOCO, montar_query, montar_query_pks
-from producao.bronze.tabelas import buscar_tabela
+from producao.bronze.tabelas import TABELAS_MULTI_ESCRITOR, buscar_tabela
 from producao.config.settings import CODEMP_AQUARIO, schema_bronze
 from core.db import get_engine
 
@@ -101,7 +101,13 @@ def conferir_tabela(engine, nome_tabela: str) -> dict:
     total_sapiens_sem_filial = contar_sapiens_sem_filial(engine, info)
     diferenca = total_bronze - total_sapiens
 
-    status = "OK" if diferenca == 0 else "DIVERGENTE"
+    # Tabelas com mais de um escritor (ver TABELAS_MULTI_ESCRITOR): Bronze
+    # > universo próprio da Produção é esperado (fatia extra vem de outra
+    # área) -- só Bronze < universo próprio é erro de verdade.
+    if nome_tabela in TABELAS_MULTI_ESCRITOR and diferenca > 0:
+        status = "OK"
+    else:
+        status = "OK" if diferenca == 0 else "DIVERGENTE"
 
     alerta_filial = bool(
         info.get("tem_codfil")
@@ -117,6 +123,7 @@ def conferir_tabela(engine, nome_tabela: str) -> dict:
         "diferenca": diferenca,
         "status": status,
         "alerta_filial": alerta_filial,
+        "multi_escritor": nome_tabela in TABELAS_MULTI_ESCRITOR and diferenca > 0,
     }
 
 
@@ -210,7 +217,7 @@ if __name__ == "__main__":
         sapiens_sf_fmt = f"{sapiens_sf:,}" if isinstance(sapiens_sf, int) else "-"
         bronze_fmt = f"{bronze:,}" if isinstance(bronze, int) else bronze
         diferenca_fmt = f"{diferenca:+,}" if isinstance(diferenca, int) else diferenca
-        alerta_fmt = "FILIAL?" if r.get("alerta_filial") else ""
+        alerta_fmt = "FILIAL?" if r.get("alerta_filial") else ("MULTI-ESCRITOR" if r.get("multi_escritor") else "")
 
         print(
             f"  {r['tabela']:<20} {sapiens_fmt:>12} {sapiens_sf_fmt:>12} {bronze_fmt:>12} "

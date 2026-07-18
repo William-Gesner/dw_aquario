@@ -208,6 +208,23 @@ TABELAS_COMPARTILHADAS_COM_COMERCIAL = [
 ]
 
 
+# ----- TABELAS COM MAIS DE UM ESCRITOR NA BRONZE -----
+#
+# Diferente de TABELAS_COMPARTILHADAS_COM_COMERCIAL (onde o Laudos RMA só
+# DEPENDE, sem extrair): a tabela abaixo É extraída aqui de propósito, em
+# paralelo com o OPEX, pro MESMO destino na Bronze -- cada um só enxerga
+# uma fatia (servidor Oracle diferente). Ver observação da tabela, e
+# doc_nova_arquitetura.md pro caso real encontrado no E044CCU (mesmo
+# padrão) em 18/07/2026.
+#
+# Usado por conferencias/dw_bronze/conferencia_laudos.py: nessa tabela,
+# Bronze > universo próprio do Laudos RMA seria ESPERADO (a fatia extra
+# viria do OPEX) -- só Bronze < universo próprio é erro de verdade.
+TABELAS_MULTI_ESCRITOR = {
+    "R910USU": "OPEX também extrai esta tabela (via Controladoria) -- ver observação da tabela.",
+}
+
+
 # ----- FUNÇÃO AUXILIAR -----
 
 def buscar_tabela(nome: str) -> dict:
