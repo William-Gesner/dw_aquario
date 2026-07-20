@@ -98,13 +98,12 @@ TABELAS = [
         "tabela": "USU_TLAUCOR",
         "chaves_pk": ["USU_CODCOR"],
         "coluna_data": None,
-        "tem_codemp": True,
-        "coluna_codemp": "USU_CODEMP",
+        "tem_codemp": False,
         "tem_codfil": False,
         "observacao": (
             "Cor. Tem USU_CODEMP como coluna, mas a PK real é só USU_CODCOR "
             "(confirmado via ALL_CONS_COLUMNS em 07/07/2026). "
-            "CORRIGIDO em 20/07/2026: coluna_data era 'USU_DATALT', com "
+            "CORRIGIDO em 20/07/2026 (1): coluna_data era 'USU_DATALT', com "
             "incremental de 60 dias -- mas é tabela de referência estática "
             "(16 linhas, última alteração real em 2019), então nenhum ciclo "
             "incremental nunca via motivo pra reler. Isso zerava a tabela na "
@@ -114,7 +113,15 @@ TABELAS = [
             "conferência do FAT_LAUDOS: 35 mil linhas divergentes, todas com "
             "USU_DESCOR nulo na Prata vs valor real no legado. coluna_data "
             "virou None -- Bronze relê a tabela inteira (16 linhas, "
-            "irrelevante em custo) a cada ciclo."
+            "irrelevante em custo) a cada ciclo. "
+            "CORRIGIDO em 20/07/2026 (2): tem_codemp estava True, filtrando "
+            "USU_CODEMP=1 -- mas depois do fix (1), a Bronze só trouxe 8 das "
+            "16 linhas. Confirmado via SELECT USU_CODEMP, COUNT(*) ... GROUP "
+            "BY no Sapiens: 8 linhas com USU_CODEMP=1, 8 com USU_CODEMP=0 "
+            "(marcador de 'global'/sem empresa, não é NULL nem lixo). É "
+            "referência global igual USU_TLAUPRB/USU_TLAUSIT/USU_TLAUTIP -- "
+            "tem_codemp virou False, sem filtro de empresa nenhum, igual as "
+            "3 irmãs."
         ),
     },
     {
