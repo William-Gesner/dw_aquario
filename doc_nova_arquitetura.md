@@ -69,8 +69,8 @@ Segunda área a migrar, seguindo o mesmo processo do Comercial: analisar os 5 sc
 | `DIM_RECLASSIF_DEFEITOS` | `USU_VBIARMA_RECLASSIF_DEFEITOS` | Dimensão | Excel (`Z:\Dados\DefeitosProdutosRMA.xlsx`, aba `DescDefeitos`) | 🔶 Pronta — aguardando teste na VM |
 | `DIM_RECLASSIF_PRODUTOS` | `USU_VBIARMA_RECLASSIF_PRODUTOS` | Dimensão | Excel (mesmo arquivo, aba `ClassifProdutos`) | 🔶 Pronta — aguardando teste na VM |
 | `DIM_INDICE_RMA` | `USU_VBIARMA_INDICE_RMA` | Dimensão | Excel (`Z:\Dados\IndiceRMA.xlsx`, aba `Planilha1`) | 🔶 Pronta — aguardando teste na VM |
-| `FAT_VENDAS_RMA` | `USU_VBIARMA_VENDAS` | Fato | DW_BRONZE (E140NFV, E140IPV, E140IDE, E001TNS) | 🔶 Pronta — aguardando teste na VM |
-| `FAT_LAUDOS` | `USU_VBIARMA_LAUDOS` | Fato | DW_BRONZE (USU_TLAUITE + 13 JOINs) | 🔶 Pronta — aguardando teste na VM (2 melhorias aplicadas — ver abaixo) |
+| `FAT_VENDAS_RMA` | `USU_VBIARMA_VENDAS` | Fato | DW_BRONZE (E140NFV, E140IPV, E140IDE, E001TNS) | ✅ **Validada (20/07/2026)** — reescrita (agregação + window function) testada na VM: 3,6s total (contra 190s do legado e >1h30 da 1ª versão); conferência bateu com 1 linha de diferença (nota do dia corrente, esperado) |
+| `FAT_LAUDOS` | `USU_VBIARMA_LAUDOS` | Fato | DW_BRONZE (USU_TLAUITE + 13 JOINs) | ✅ **Validada (20/07/2026)** — testada na VM depois de 2 correções na Bronze (ver seção própria); conferência caiu de 35 mil divergências pra 1 linha (laudo aberto no dia, esperado) |
 
 **Ordem de construção**: das mais simples pras mais delicadas — `DIM_RECLASSIF_DEFEITOS` → `DIM_RECLASSIF_PRODUTOS` → `DIM_INDICE_RMA` → `FAT_VENDAS_RMA` → `FAT_LAUDOS` (por último, de propósito — é a mais complexa das 5).
 
@@ -91,6 +91,28 @@ Diferente de tudo migrado no Comercial (sempre 1 query SQL + upsert/full_reload,
 1. **Reincidência: window function em vez de self-join.** O legado calculava "a entrada anterior mais recente do mesmo número de série" com um self-join (`USU_TLAUITE`/`E440NFC` contra si mesma, `T1.DATENT > Tz.DATENT` + `GROUP BY MAX(Tz.DATENT)`) — custo que cresce mal (O(n²)-like) por número de série. Trocado por `LAG(DATENT) OVER (PARTITION BY USU_SERMAC ORDER BY DATENT)` — matematicamente equivalente (o maior valor anterior numa sequência ordenada É o valor imediatamente anterior), porque a query original usa o MESMO filtro tanto pro "atual" quanto pro "anterior" do cálculo (confirmado lendo os dois `WHERE`). Validado pela `conferencia_fat_laudos.py` (MINUS dado a dado) antes de ser considerada pronta — mesma régua de sempre.
 2. **`_int_str()` vetorizado.** A versão original convertia `NUMBER` do Oracle pra string linha a linha via `.apply()` em Python puro. Trocado por `pd.to_numeric` + `Int64` (vetorizado), mesmo resultado nos 3 casos (numérico, nulo, já-texto).
 3. **Não alterado**: `DS_PRAZO`/`REINCIDENTE`/`MACRO_REGIAO`/etc. já usam `np.select`/`np.where` (vetorizado) — mantidos exatamente iguais ao legado, sem reescrever pra SQL. Mesmo critério usado pra rejeitar a deduplicação do `FUNDPOB` no `FAT_FATURAMENTO`: risco de reescrever lógica de negócio sem poder testar contra Oracle real não compensa o ganho.
+
+### Bug encontrado na conferência do `FAT_LAUDOS` (20/07/2026): 4 tabelas de referência zeradas na Bronze
+
+Primeira rodada da conferência bateu **35.534 divergências** (>1/3 da tabela). Comparando as amostras campo a campo, a única diferença real era um valor vindo de `USU_TLAUCOR` (via `T0.USU_CODCOR = T14.USU_CODCOR`) — `None` na Prata, valor real no legado (ex.: `'CONSERTADO'`). O resumo do próprio ciclo da Bronze confirmou a causa na hora: `USU_TLAUCOR`, `USU_TLAUPRB`, `USU_TLAUSIT` e `USU_TLAUTIP` estavam com **0 linhas salvas** na Bronze.
+
+Causa raiz (1): mesmo bug do `E085CLI` (Comercial) — essas 4 tabelas de referência (cor, problema, situação, tipo do laudo) tinham `coluna_data: "USU_DATALT"` no catálogo, aplicando o filtro incremental de 60 dias em todo ciclo depois da 1ª carga. Só que são tabelas praticamente estáticas: confirmado no Sapiens que têm entre 3 e 16 linhas, com a última alteração real variando de **2014 a 2020** — ou seja, sempre fora da janela de 60 dias, em qualquer ciclo. **Corrigido**: `coluna_data` virou `None` nas 4 (`laudos_rma/bronze/tabelas.py`) — Bronze relê essas tabelas inteiras a cada ciclo, custo irrelevante (no máximo 16 linhas).
+
+Causa raiz (2): depois do fix acima, `USU_TLAUCOR` ainda só trouxe 8 das 16 linhas (as outras 3 vieram completas). `USU_TLAUCOR` tinha `tem_codemp: True` (filtrando `USU_CODEMP = 1`) — confirmado no Sapiens (`SELECT USU_CODEMP, COUNT(*) ... GROUP BY`) que 8 linhas têm `USU_CODEMP = 1` e 8 têm `USU_CODEMP = 0` (marcador de "global", não lixo). É referência global igual as 3 irmãs (`USU_TLAUPRB`/`SIT`/`TIP`, todas `tem_codemp: False`). **Corrigido**: `tem_codemp` virou `False` também.
+
+Causa raiz (3): depois dos 2 fixes acima, sobraram 30 divergências (6 + 24), todas ligadas a atividade do dia (20/07/2026). Comparando campo a campo, a diferença real estava em `APETRA`/`CODTRA`/`DATEMI` (e os 2 campos calculados em cima deles) — vindos de `E140NFV`/`E073TRA`, que são **tabelas compartilhadas com o Comercial** (mantidas pelo extrator do Comercial, não pelo do Laudos RMA). Rodar `laudos_rma.bronze.extrator` não atualiza essas duas. **Resolvido rodando `comercial.bronze.extrator`** também — não foi bug de catálogo, foi só lembrar que o Laudos RMA depende de tabelas de outra área.
+
+**Resultado final**: conferência caiu de 35.534 para 1 linha (um laudo aberto no dia corrente, ainda "AGUARDANDO MOV DE ESTOQUE" — a Prata capturou um registro mais recente que o próprio legado, cujo ciclo de 15 min ainda não tinha rodado de novo; mesma tolerância de não-atomicidade já documentada no `DIM_CLIENTE`). `FAT_LAUDOS` considerado validado.
+
+### `FAT_VENDAS_RMA` — causa da lentidão encontrada e corrigida (20/07/2026)
+
+Legado (`vbivendas.py`, direto no Sapiens): 190s. Nossa 1ª versão (mesma lógica, lendo da Bronze): passou de 1h30 sem terminar, mesmo depois de confirmar índice (`IDX_E140IDE_PK`, `IDX_E085HCL_PK`, `IDX_E140PVD_PK`) e estatística atualizada (`DBMS_STATS.GATHER_TABLE_STATS`) em `E140NFV`, `E140IPV`, `E140IDE`, `E001TNS`. Não era nem índice nem estatística.
+
+Causa raiz: `QTDMED` era calculado com uma **subquery correlacionada no SELECT**, reexecutada uma vez **por linha** do JOIN principal, antes do `GROUP BY` agrupar por mês/produto. O JOIN principal contra a Bronze produz **~210 mil linhas** (confirmado via `COUNT(*)` isolado) — ou seja, a subquery rodava ~210 mil vezes, mesmo o resultado final tendo só 1 linha por combinação de mês x produto (o grão real da tabela). Mesmo uma subquery individualmente rápida, multiplicada 210 mil vezes, facilmente passa de 1h30.
+
+**Corrigido**: reescrita em 2 passos (`laudos_rma/prata/fat_vendas_rma.py`) — agrega vendas por mês x produto **uma vez** (CTE `VENDAS_MES_PRODUTO`), depois calcula a soma móvel de 6 meses com `SUM(...) OVER (PARTITION BY CODPRO ORDER BY MES RANGE BETWEEN INTERVAL '6' MONTH PRECEDING AND INTERVAL '1' MONTH PRECEDING)` em cima do agregado (bem menor que 210 mil linhas). O corte de `DATA_CORTE_LAUDOS` é aplicado só no final (filtrando quais mês/produto entram no resultado), igual o legado só cortava a linha externa — o cálculo de `QTDMED` de um mês de referência de janeiro/2023 precisa olhar meses anteriores a 2023, então a agregação em si não pode ter esse corte.
+
+Mesmo princípio da correção da reincidência no `FAT_LAUDOS`: trocar "recalcular por linha" por "agregar uma vez + calcular por cima do agregado". **Validado**: testado na VM em 3,6s total (extração + carga), `conferencia_fat_vendas_rma.py` bateu com só 1 linha de diferença (venda do dia corrente ainda não refletida no legado — esperado).
 
 ### Conferências com colunas dinâmicas (não hardcoded)
 
