@@ -1,6 +1,6 @@
 # Progresso da migração — Fase 2 (Camada Prata)
 
-> Documento de acompanhamento da Fase 2 (camada Prata): decisões de negócio, convenção de nomes e status por tabela. Não cobre infraestrutura/Bronze (isso fica no `contexto.md` original). Última atualização: 17/07/2026.
+> Documento de acompanhamento da Fase 2 (camada Prata): decisões de negócio, convenção de nomes e status por tabela. Não cobre infraestrutura/Bronze (isso fica no `contexto.md` original). Última atualização: 20/07/2026.
 
 ---
 
@@ -18,7 +18,7 @@ Com as 7 áreas de negócio já migradas pra Bronze, a Fase 2 recria a camada **
 
 ---
 
-## Status atual (17/07/2026)
+## Status atual (20/07/2026)
 
 **Bronze**: concluída nas 7 áreas — pré-requisito já atendido, todas as tabelas fonte disponíveis. Auditoria do bug de `tem_codfil` (Regra 6) estendida a todas as áreas em 17/07/2026 — 9 tabelas corrigidas fora do Comercial (Estoque, Produção, Laudos RMA), 2 confirmadas corretas (Expedição, Rastreabilidade); ver seção "Correção do `tem_codfil` nas demais áreas da Bronze". OPEX não teve nenhuma tabela com `tem_codfil` (área sem conceito de filial).
 
@@ -26,24 +26,75 @@ Com as 7 áreas de negócio já migradas pra Bronze, a Fase 2 recria a camada **
 
 | Área | Status |
 |---|---|
-| Comercial | **7/7 tabelas construídas** — 2 validadas, 5 aguardando teste na VM |
-| OPEX, Produção, Estoque, Expedição, Laudos RMA, Rastreabilidade | Não iniciada |
+| Comercial | **7/7 tabelas construídas, testadas na VM e consideradas finalizadas** (20/07/2026) — ver ressalva na seção "Comercial finalizado" |
+| Laudos RMA | **Levantamento em andamento** — 5 scripts legados mapeados, Prata ainda não criada (ver seção própria) |
+| OPEX, Produção, Estoque, Expedição, Rastreabilidade | Não iniciada |
 
 ### Tabelas da Prata do Comercial
 
 | Tabela nova | Tabela legado | Classificação | Status |
 |---|---|---|---|
 | `DIM_CONDICAO_PAGAMENTO` | `USU_VBIACONDPGTO` | Dimensão | ✅ **Validada** — dados batem 100% com o legado |
-| `DIM_PRODUTO` | `USU_BVIPRODUTOS` | Dimensão | 🔶 Pronta — aguardando teste na VM |
-| `DIM_REPRESENTANTE` | `USU_VBIREPRESENTANTES` | Dimensão | 🔶 Pronta — aguardando teste na VM |
-| `DIM_REGIONAL` | `USU_VBIREGIONAIS` | Dimensão | 🔶 Pronta — aguardando teste na VM (melhoria aplicada — ver abaixo) |
-| `FAT_METAS` | `USU_VBIMETAS` | Fato | 🔶 Pronta — aguardando teste na VM |
+| `DIM_PRODUTO` | `USU_BVIPRODUTOS` | Dimensão | ✅ **Validada** — testada na VM, conferência batendo |
+| `DIM_REPRESENTANTE` | `USU_VBIREPRESENTANTES` | Dimensão | ✅ **Validada** — testada na VM, conferência batendo |
+| `DIM_REGIONAL` | `USU_VBIREGIONAIS` | Dimensão | ✅ **Validada** — testada na VM, conferência batendo (melhoria aplicada — ver abaixo) |
+| `FAT_METAS` | `USU_VBIMETAS` | Fato | ✅ **Validada (20/07/2026)** — testada com troca real de representante em produção (506 → 544), conferência bateu 100% (ver "Comercial finalizado") |
 | `DIM_CLIENTE` | `USU_BVIACLIENTES` | Dimensão | ✅ **Validada (17/07/2026)** — 3 bugs de Bronze encontrados e corrigidos na conferência (ver observação abaixo); MINUS final bateu 0 dos dois lados |
-| `FAT_FATURAMENTO` | `USU_VBIAFATURAMENTO` | Fato | 🔶 Pronta — aguardando teste na VM (estratégia de carga confirmada — ver abaixo) |
+| `FAT_FATURAMENTO` | `USU_VBIAFATURAMENTO` | Fato | ✅ **Validada (20/07/2026)** — testada na VM, índices da Bronze corrigidos, validação extra por agregado mensal batendo 100% (ver "Comercial finalizado") |
 
-**As 7 tabelas do Comercial estão construídas.** Falta só validar as 6 restantes na VM (extração + conferência de cada uma) pra fechar a área por completo.
+**As 7 tabelas do Comercial estão construídas e testadas na VM.** Ver seção "Comercial finalizado" logo abaixo.
 
-**Ordem de construção**: da mais simples pra mais delicada — `DIM_CONDICAO_PAGAMENTO` → `DIM_PRODUTO` → `DIM_REPRESENTANTE` → `DIM_REGIONAL` → `FAT_METAS` → `DIM_CLIENTE` → `FAT_FATURAMENTO` (por último, de propósito).
+---
+
+## Comercial finalizado (20/07/2026)
+
+Todas as 7 tabelas testadas na VM (extração + conferência). Achados relevantes desta última rodada:
+
+- **Performance / índices da Bronze**: `fat_faturamento.py` estava demorando bastante. Causa raiz: `full_reload_streaming()` (`core/loader.py`) nunca cria índice automático — só `upsert()` faz isso (via `_ensure_table`), e só na criação da tabela. As 7 tabelas grandes/transacionais da Bronze (`E120IPD`, `E120PED`, `E140IPV`, `E140ISV`, `E140NFV`, `E440IPC`, `E440NFC`) tinham perdido o índice quando foram dropadas e recarregadas para o fix do `tem_codfil` (17/07/2026) — a recarga (`full_reload_streaming`) não recriou o índice que existia antes do DROP. Índices recriados manualmente na VM; tempo total de extração+carga do `FAT_FATURAMENTO` caiu de bem lento para ~65s. **Pendência conhecida, não corrigida no código**: `full_reload_streaming()` continua sem criar índice — qualquer futuro "dropar e deixar recarregar" (padrão de correção usado várias vezes neste projeto) vai repetir esse mesmo problema até isso ser corrigido na função.
+- **FAT_FATURAMENTO — validação extra por agregado mensal**: além da conferência linha a linha, validamos meses fechados (abril, maio, junho/2026) comparando soma de `VLR_LIQ`/`VLRBRUTO_TOTAL` e contagem por `TIPOREG`, direto no Sapiens x Prata — bateu 100% nos 3 meses. O pequeno resíduo visto em notas de janeiro/2026 (campos `CODCLIBASE`/`CODREGREP`/`CODREGCLI` de `E140NFV`) foi rastreado a uma oscilação ativa do próprio Sapiens (o valor mudava de um minuto pro outro em consultas diretas) — não é bug de pipeline, é instabilidade do dado de origem.
+- **FAT_METAS — validado com mudança real de produção**: testado durante uma troca real de representante (saída do 506, entrada do 544) na meta de julho/2026. Confirmou que o fluxo Bronze → Prata → conferência reflete corretamente tanto atualização quanto substituição de linha (o Sapiens criou um `SEQREG` novo para o 544 em vez de editar o do 506 — ou seja, testou também o caminho de "linha órfã" que a limpeza de órfãos da Bronze precisa cobrir).
+
+**Ressalva importante**: o Comercial não está sendo considerado 100% fechado em definitivo. Várias tabelas da Bronze são compartilhadas com outras áreas ainda não migradas (Laudos RMA, Rastreabilidade, Produção, Estoque) — pode surgir alguma divergência nova quando essas dependências forem exercitadas por elas. Mas a área em si (as 7 tabelas, suas regras de negócio e a validação contra o legado) está migrada e testada.
+
+---
+
+## Laudos RMA (20/07/2026, em andamento)
+
+Segunda área a migrar, seguindo o mesmo processo do Comercial: analisar os 5 scripts legados (`aquario/laudos_rma/extract/`), decidir `DIM_`/`FAT_`, confirmar que a Bronze já tem tudo, só depois criar a Prata.
+
+### Tabelas da Prata do Laudos RMA
+
+| Tabela nova | Tabela legado | Classificação | Origem | Status |
+|---|---|---|---|---|
+| `DIM_RECLASSIF_DEFEITOS` | `USU_VBIARMA_RECLASSIF_DEFEITOS` | Dimensão | Excel (`Z:\Dados\DefeitosProdutosRMA.xlsx`, aba `DescDefeitos`) | 🔶 Pronta — aguardando teste na VM |
+| `DIM_RECLASSIF_PRODUTOS` | `USU_VBIARMA_RECLASSIF_PRODUTOS` | Dimensão | Excel (mesmo arquivo, aba `ClassifProdutos`) | 🔶 Pronta — aguardando teste na VM |
+| `DIM_INDICE_RMA` | `USU_VBIARMA_INDICE_RMA` | Dimensão | Excel (`Z:\Dados\IndiceRMA.xlsx`, aba `Planilha1`) | 🔶 Pronta — aguardando teste na VM |
+| `FAT_VENDAS_RMA` | `USU_VBIARMA_VENDAS` | Fato | DW_BRONZE (E140NFV, E140IPV, E140IDE, E001TNS) | 🔶 Pronta — aguardando teste na VM |
+| `FAT_LAUDOS` | `USU_VBIARMA_LAUDOS` | Fato | DW_BRONZE (USU_TLAUITE + 13 JOINs) | 🔶 Pronta — aguardando teste na VM (2 melhorias aplicadas — ver abaixo) |
+
+**Ordem de construção**: das mais simples pras mais delicadas — `DIM_RECLASSIF_DEFEITOS` → `DIM_RECLASSIF_PRODUTOS` → `DIM_INDICE_RMA` → `FAT_VENDAS_RMA` → `FAT_LAUDOS` (por último, de propósito — é a mais complexa das 5).
+
+**Cobertura da Bronze**: todas as tabelas Oracle usadas por `vbilaudos.py` (16, incluindo a subquery de reincidência) e `vbivendas.py` (4) já existem na Bronze — 9 exclusivas do catálogo do Laudos RMA + 10 compartilhadas com o Comercial. Nada precisava ser criado na Bronze para esta área.
+
+### Decisão: as 3 tabelas de Excel continuam lendo direto do Excel (sem Bronze)
+
+`DIM_RECLASSIF_DEFEITOS`, `DIM_RECLASSIF_PRODUTOS` e `DIM_INDICE_RMA` nunca tiveram origem Oracle — vêm de planilhas manuais (`Z:\Dados\DefeitosProdutosRMA.xlsx`, `Z:\Dados\IndiceRMA.xlsx`), alimentadas manualmente pelo time de negócio. **Confirmado com o usuário (20/07/2026): continuam lendo exatamente do mesmo caminho, sem criar uma camada Bronze de Excel.** É uma exceção deliberada à regra "Prata lê da Bronze, nunca da fonte direto" — não existe fonte Oracle equivalente pra essas 3 tabelas, então não há nada pra Bronze copiar.
+
+### Corte de data do Laudos RMA — diferente do Comercial
+
+O legado do Laudos RMA (`vbilaudos.py` e `vbivendas.py`) já filtrava `DATENT`/`DATEMI` `>= 01/01/2023` — diferente do corte de `01/01/2021` usado no Comercial. Regra 2 da Fase 2: só aplicamos corte novo quando o legado não tinha nenhum; aqui o legado já cortava em 2023, então o corte foi **mantido em `01/01/2023`** (`DATA_CORTE_LAUDOS` em `laudos_rma/config/settings.py`), não trocado pelo padrão de 2021.
+
+### `FAT_LAUDOS` — melhorias de eficiência propostas e aplicadas (20/07/2026)
+
+Diferente de tudo migrado no Comercial (sempre 1 query SQL + upsert/full_reload, sem lógica em pandas), `vbilaudos.py` calcula em Python: prazo (usa `date.today()`), reincidência (merge com uma segunda query), macro-região, classificação de entrega, chaves compostas. Usuário pediu para propor melhorias de eficiência, não só replicar — aplicadas 2, mantida 1 decisão de não mexer:
+
+1. **Reincidência: window function em vez de self-join.** O legado calculava "a entrada anterior mais recente do mesmo número de série" com um self-join (`USU_TLAUITE`/`E440NFC` contra si mesma, `T1.DATENT > Tz.DATENT` + `GROUP BY MAX(Tz.DATENT)`) — custo que cresce mal (O(n²)-like) por número de série. Trocado por `LAG(DATENT) OVER (PARTITION BY USU_SERMAC ORDER BY DATENT)` — matematicamente equivalente (o maior valor anterior numa sequência ordenada É o valor imediatamente anterior), porque a query original usa o MESMO filtro tanto pro "atual" quanto pro "anterior" do cálculo (confirmado lendo os dois `WHERE`). Validado pela `conferencia_fat_laudos.py` (MINUS dado a dado) antes de ser considerada pronta — mesma régua de sempre.
+2. **`_int_str()` vetorizado.** A versão original convertia `NUMBER` do Oracle pra string linha a linha via `.apply()` em Python puro. Trocado por `pd.to_numeric` + `Int64` (vetorizado), mesmo resultado nos 3 casos (numérico, nulo, já-texto).
+3. **Não alterado**: `DS_PRAZO`/`REINCIDENTE`/`MACRO_REGIAO`/etc. já usam `np.select`/`np.where` (vetorizado) — mantidos exatamente iguais ao legado, sem reescrever pra SQL. Mesmo critério usado pra rejeitar a deduplicação do `FUNDPOB` no `FAT_FATURAMENTO`: risco de reescrever lógica de negócio sem poder testar contra Oracle real não compensa o ganho.
+
+### Conferências com colunas dinâmicas (não hardcoded)
+
+`DIM_INDICE_RMA` (colunas do Excel não documentadas linha a linha no código legado) e `FAT_LAUDOS` (~75 colunas — risco real de erro de transcrição manual) usam uma técnica diferente das outras conferências do projeto: em vez de uma lista `COLUNAS` fixa, a conferência consulta `ALL_TAB_COLUMNS` dos dois lados em tempo de execução e compara a **interseção** das colunas (excluindo metadado técnico). As outras 3 tabelas desta área continuam com lista fixa, igual o padrão já usado no Comercial.
 
 ---
 

@@ -97,35 +97,64 @@ TABELAS = [
     {
         "tabela": "USU_TLAUCOR",
         "chaves_pk": ["USU_CODCOR"],
-        "coluna_data": "USU_DATALT",
+        "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "USU_CODEMP",
         "tem_codfil": False,
-        "observacao": "Cor. Tem USU_CODEMP como coluna, mas a PK real é só USU_CODCOR (confirmado via ALL_CONS_COLUMNS em 07/07/2026).",
+        "observacao": (
+            "Cor. Tem USU_CODEMP como coluna, mas a PK real é só USU_CODCOR "
+            "(confirmado via ALL_CONS_COLUMNS em 07/07/2026). "
+            "CORRIGIDO em 20/07/2026: coluna_data era 'USU_DATALT', com "
+            "incremental de 60 dias -- mas é tabela de referência estática "
+            "(16 linhas, última alteração real em 2019), então nenhum ciclo "
+            "incremental nunca via motivo pra reler. Isso zerava a tabela na "
+            "Bronze (upsert com 0 linhas extraídas não apaga o que já existe, "
+            "mas nesse caso a 1ª carga real nunca chegou a persistir -- "
+            "mesmo mecanismo do bug do E085CLI no Comercial). Achado na "
+            "conferência do FAT_LAUDOS: 35 mil linhas divergentes, todas com "
+            "USU_DESCOR nulo na Prata vs valor real no legado. coluna_data "
+            "virou None -- Bronze relê a tabela inteira (16 linhas, "
+            "irrelevante em custo) a cada ciclo."
+        ),
     },
     {
         "tabela": "USU_TLAUPRB",
         "chaves_pk": ["USU_CODPRB"],
-        "coluna_data": "USU_DATALT",
+        "coluna_data": None,
         "tem_codemp": False,
         "tem_codfil": False,
-        "observacao": "Problema. Tabela global -- sem CODEMP (confirmado via ALL_TAB_COLUMNS em 07/07/2026).",
+        "observacao": (
+            "Problema. Tabela global -- sem CODEMP (confirmado via "
+            "ALL_TAB_COLUMNS em 07/07/2026). CORRIGIDO em 20/07/2026: mesmo "
+            "motivo do USU_TLAUCOR -- 14 linhas, última alteração real em "
+            "2014, sempre fora da janela de 60 dias. coluna_data virou None."
+        ),
     },
     {
         "tabela": "USU_TLAUSIT",
         "chaves_pk": ["USU_CODSIT"],
-        "coluna_data": "USU_DATALT",
+        "coluna_data": None,
         "tem_codemp": False,
         "tem_codfil": False,
-        "observacao": "Situação do laudo. Tabela global -- sem CODEMP (confirmado via ALL_TAB_COLUMNS em 07/07/2026).",
+        "observacao": (
+            "Situação do laudo. Tabela global -- sem CODEMP (confirmado via "
+            "ALL_TAB_COLUMNS em 07/07/2026). CORRIGIDO em 20/07/2026: mesmo "
+            "motivo do USU_TLAUCOR -- 9 linhas, última alteração real em "
+            "2020, sempre fora da janela de 60 dias. coluna_data virou None."
+        ),
     },
     {
         "tabela": "USU_TLAUTIP",
         "chaves_pk": ["USU_CODTIP"],
-        "coluna_data": "USU_DATALT",
+        "coluna_data": None,
         "tem_codemp": False,
         "tem_codfil": False,
-        "observacao": "Tipo de laudo. Tabela global -- sem CODEMP (confirmado via ALL_TAB_COLUMNS em 07/07/2026).",
+        "observacao": (
+            "Tipo de laudo. Tabela global -- sem CODEMP (confirmado via "
+            "ALL_TAB_COLUMNS em 07/07/2026). CORRIGIDO em 20/07/2026: mesmo "
+            "motivo do USU_TLAUCOR -- 3 linhas, última alteração real em "
+            "2015, sempre fora da janela de 60 dias. coluna_data virou None."
+        ),
     },
     {
         "tabela": "R910USU",

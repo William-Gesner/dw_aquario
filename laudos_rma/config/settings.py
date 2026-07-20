@@ -46,3 +46,31 @@ CODFIL_AQUARIO = 1
 # ----- JANELA DE INCREMENTAL DA BRONZE -----
 
 JANELA_INCREMENTAL_DIAS = 60
+
+# ----- CORTE DE DATA DA PRATA -----
+
+# Corte já existente no legado (vbilaudos.py e vbivendas.py filtram
+# DATENT/DATEMI >= 01/01/2023) -- MANTIDO, não é o mesmo corte de
+# 01/01/2021 usado no Comercial. Regra 2 da Fase 2: só aplicamos um corte
+# novo quando o legado não tinha nenhum; aqui o legado já cortava em
+# 2023, então preservamos exatamente esse valor para não trazer mais
+# histórico do que o Power BI já mostra hoje.
+DATA_CORTE_LAUDOS = "01/01/2023"
+
+# ----- CAMINHOS DE ARQUIVOS EXTERNOS -----
+
+# Pasta local na VM (drive Z:) onde ficam os arquivos Excel do projeto.
+# NÃO mover os arquivos -- são alimentados manualmente pelo time de
+# negócio. Mesmo caminho usado pelo legado (aquario/laudos_rma/config/
+# settings.py) -- as 3 tabelas de Excel continuam lendo direto daqui,
+# sem passar pela Bronze (não há Bronze de Excel neste projeto).
+PASTA_DADOS_EXTERNOS = Path(r"Z:\Dados")
+
+# DefeitosProdutosRMA.xlsx -- reclassificação de defeitos e produtos.
+#   Aba DescDefeitos    : reclassificação de defeitos por produto  -> dim_reclassif_defeitos.py
+#   Aba ClassifProdutos : classificação e situação dos produtos    -> dim_reclassif_produtos.py
+EXCEL_DEFEITOS_PRODUTOS = PASTA_DADOS_EXTERNOS / "DefeitosProdutosRMA.xlsx"
+
+# IndiceRMA.xlsx -- estrutura hierárquica do Índice RMA (Pai/ID/Nome).
+#   Aba Planilha1 : hierarquia do índice -> dim_indice_rma.py
+EXCEL_INDICE_RMA = PASTA_DADOS_EXTERNOS / "IndiceRMA.xlsx"
