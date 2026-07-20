@@ -61,3 +61,10 @@ CODFIL_AQUARIO = 1
 # Válida para TODAS as 33 tabelas da Bronze do Comercial, sem exceção
 # (ver core/loader.py -> carregar_bronze()).
 JANELA_INCREMENTAL_DIAS = 60
+
+# ----- CORTE DE DATA DA PRATA -----
+
+# Corte fixo pras tabelas FATO da Prata do Comercial (Regra 2 da Fase 2:
+# dimensão nunca tem corte). Mesmo corte que o legado já tinha para
+# faturamento -- não é mudança de resultado.
+DATA_CORTE_FATURAMENTO = "01/01/2021"

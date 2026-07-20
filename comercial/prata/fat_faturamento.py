@@ -67,6 +67,8 @@ pra testar direito, não forçada agora.
 
 # ----- IMPORTS -----
 
+from time import perf_counter
+
 import pandas as pd
 from sqlalchemy import text
 
@@ -397,10 +399,14 @@ WHERE N.CODEMP = 1
 
 # ----- EXTRAÇÃO -----
 
+inicio_total = perf_counter()
+
 engine = get_engine_prata()
 
+inicio_extracao = perf_counter()
 with engine.connect() as conn:
     df = pd.read_sql(text(query), conn)
+print(f"  Tempo extração: {perf_counter() - inicio_extracao:.1f}s")
 
 df.columns = [col.upper() for col in df.columns]
 
@@ -408,4 +414,8 @@ df.columns = [col.upper() for col in df.columns]
 
 dtype_map = build_dtype_map(df)
 
+inicio_carga = perf_counter()
 full_reload(engine, df, schema_prata, tabela_destino, chunksize=10000)
+print(f"  Tempo carga: {perf_counter() - inicio_carga:.1f}s")
+
+print(f"  Tempo total {tabela_destino}: {perf_counter() - inicio_total:.1f}s")
