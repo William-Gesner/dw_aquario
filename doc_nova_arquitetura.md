@@ -128,6 +128,32 @@ Mesmo princípio da correção da reincidência no `FAT_LAUDOS`: trocar "recalcu
 4. **Metadado técnico — `DW_DATA_INGESTAO` (Bronze) / `DW_DATA_PROCESSAMENTO` (Prata)**: toda tabela, nas duas camadas, ganha essa coluna automaticamente, registrando quando aquela linha foi gravada/atualizada pela última vez. Implementado de forma centralizada no `core/loader.py` — nenhum script de área precisa se preocupar com isso, é automático em toda escrita. Nomes diferentes por camada porque a ação é diferente (Bronze ingere, Prata processa).
 5. **Índice comum (não PK) na chave de merge**: toda tabela nova (Bronze ou Prata) já nasce com índice, criado automaticamente no momento da criação da tabela — não precisa de retrofit depois. É índice comum, não constraint de PK (performance de busca praticamente igual, mas não trava a criação se existir alguma duplicata). Tabelas `full_reload` (como `FAT_FATURAMENTO`) não criam índice automático — se precisar, é caso a caso.
 6. **`tem_codfil` na Bronze: só `True` se o(s) script(s) legado(s) fixarem a filial explicitamente** (ex.: `AND X.CODFIL = 1`). Bug real encontrado em 17/07/2026: 10 tabelas do catálogo do Comercial (`E120IPD`, `E120PED`, `E140IPV`, `E140ISV`, `E140NFV`, `E440IPC`, `E440NFC`, `E085HCL`, `E140IDE`, `E140PVD`) estavam com `tem_codfil: True` sem nenhum script legado realmente restringir filial nos JOINs que as usam — a maioria só filtra `CODEMP` (empresa), ou casa `CODFIL` dinamicamente com a filial da própria linha (`X.CODFIL = Y.CODFIL`), nunca fixando `= 1`. A Bronze filtrada silenciosamente descartava registros de outras filiais, e isso só apareceu na conferência dado-a-dado — contagem de linhas não pega esse tipo de erro. **Regra pra qualquer área nova**: antes de marcar uma tabela do catálogo Bronze como `tem_codfil: True`, confirmar no script legado (JOIN e WHERE) que a filial é fixada em `1` ali — se for casamento dinâmico ou não houver filtro de filial nenhum, é `tem_codfil: False` (Bronze traz o universo completo; quem decide o escopo de filial é a query consumidora na Prata, igual o legado sempre fez). Ver observação de `E140NFV` em `comercial/bronze/tabelas.py` para o caso completo investigado. **Auditoria estendida a todas as áreas em 17/07/2026** — ver seção "Correção do `tem_codfil` nas demais áreas da Bronze" logo abaixo: mais 9 tabelas corrigidas (Estoque, Produção, Laudos RMA), 2 confirmadas corretas como estavam (Expedição, Rastreabilidade).
+7. **Nova coluna em tabela de origem (Sapiens) precisa ser avisada precisamente, sempre — combinado com o usuário em 20/07/2026.** Qualquer inclusão de coluna em qualquer tabela do Sapiens usada pelo projeto (em qualquer área) precisa ser informada (nome da tabela + nome da coluna) assim que o usuário souber, mesmo que a coluna ainda não vá ser usada em nenhuma Prata. Motivo: tabelas com carga `upsert` (MERGE incremental) já existem no Oracle com estrutura fixa — se o Sapiens ganha uma coluna nova e a Bronze não é atualizada primeiro, o **próximo ciclo incremental quebra com `ORA-00904`** (coluna referenciada no MERGE não existe na tabela de destino), porque `upsert()` monta o SQL dinamicamente a partir das colunas do DataFrame extraído (`SELECT *`), não da estrutura antiga da tabela Oracle. Tabelas `full_reload`/`full_reload_streaming` não têm esse problema (tabela é dropada e recriada do zero a cada ciclo, a coluna nova entra sozinha) — mas o aviso vale igual, pra manter o catálogo e a documentação em dia. Ver seção "Procedimento: nova coluna em tabela de origem" logo abaixo para o passo a passo.
+
+---
+
+## Procedimento: nova coluna em tabela de origem (Sapiens)
+
+Sempre que o time de negócio incluir uma coluna nova em qualquer tabela do Sapiens usada pelo projeto (Regra 7 acima):
+
+1. **Confirmar se a tabela é usada em algum catálogo da Bronze** (`<area>/bronze/tabelas.py`, em qualquer uma das 7 áreas). Se a tabela não aparecer em nenhum catálogo, não precisa fazer nada agora — não extraímos ela (caso real: `USU_TANYMKTPED`, verificado em 20/07/2026, não usada em nenhuma área, atual ou legado).
+
+2. **Se a tabela for usada e a estratégia de carga for `upsert` (incremental)**: a coluna precisa existir na Bronze **antes** do próximo ciclo, senão o `MERGE` quebra com `ORA-00904`. Passo a passo:
+
+    ```sql
+    -- a) Descobrir o tipo exato da coluna nova no Sapiens
+    SELECT column_name, data_type, data_length, data_precision, data_scale
+    FROM ALL_TAB_COLUMNS
+    WHERE owner = 'SAPIENS' AND table_name = '<TABELA>' AND column_name = '<COLUNA>';
+
+    -- b) Adicionar a mesma coluna na Bronze, com o mesmo tipo
+    --    (sem NOT NULL -- linhas já existentes ficam NULL nessa coluna, esperado)
+    ALTER TABLE DW_BRONZE.<TABELA> ADD (<COLUNA> <TIPO_IGUAL_AO_SAPIENS>);
+    ```
+
+3. **Se a estratégia for `full_reload`/`full_reload_streaming`**: não precisa de `ALTER TABLE` — a tabela é dropada e recriada do zero no próximo ciclo, a coluna nova entra sozinha (o `SELECT *` da extração já traz ela). Mesmo assim, o aviso continua valendo — mantém o catálogo com contexto de quando/por que a coluna apareceu.
+
+4. **A coluna nova só aparece na Prata se algum script `prata/<tabela>.py` referenciar ela explicitamente no `SELECT`** — Bronze é cópia crua (toda coluna via `SELECT *`), Prata é sempre um `SELECT` deliberado com lista de colunas explícita. Incluir na Prata é decisão de negócio separada, feita quando fizer sentido usar o campo — não é automático só porque a coluna existe na Bronze.
 
 ---
 
