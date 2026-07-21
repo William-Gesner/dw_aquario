@@ -10,6 +10,8 @@ Com as 7 áreas de negócio já migradas pra Bronze, a Fase 2 recria a camada **
 
 ---
 
+
+
 ## Onde fica cada coisa
 
 - **Prata**: `dw_aquario/<area>/prata/` — 1 arquivo por tabela, nome do arquivo = nome da tabela nova em minúsculo (ex.: `dim_cliente.py` gera `DIM_CLIENTE`).
@@ -18,33 +20,44 @@ Com as 7 áreas de negócio já migradas pra Bronze, a Fase 2 recria a camada **
 
 ---
 
+
+
 ## Status atual (20/07/2026)
 
 **Bronze**: concluída nas 7 áreas — pré-requisito já atendido, todas as tabelas fonte disponíveis. Auditoria do bug de `tem_codfil` (Regra 6) estendida a todas as áreas em 17/07/2026 — 9 tabelas corrigidas fora do Comercial (Estoque, Produção, Laudos RMA), 2 confirmadas corretas (Expedição, Rastreabilidade); ver seção "Correção do `tem_codfil` nas demais áreas da Bronze". OPEX não teve nenhuma tabela com `tem_codfil` (área sem conceito de filial).
 
 **Prata**:
 
-| Área | Status |
-|---|---|
-| Comercial | **7/7 tabelas construídas, testadas na VM e consideradas finalizadas** (20/07/2026) — ver ressalva na seção "Comercial finalizado" |
-| Laudos RMA | **Levantamento em andamento** — 5 scripts legados mapeados, Prata ainda não criada (ver seção própria) |
-| OPEX, Produção, Estoque, Expedição, Rastreabilidade | Não iniciada |
+
+| Área                                          | Status                                                                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Comercial                                     | **7/7 tabelas construídas, testadas na VM e consideradas finalizadas** (20/07/2026) — ver ressalva na seção "Comercial finalizado" |
+| Laudos RMA                                    | **Levantamento em andamento** — 5 scripts legados mapeados, Prata ainda não criada (ver seção própria)                             |
+| OPEX                                          | **1/1 tabela construída, testada na VM e validada** (21/07/2026) — ver seção "OPEX"                                                |
+| Produção, Estoque, Expedição, Rastreabilidade | Não iniciada                                                                                                                       |
+
+
+
 
 ### Tabelas da Prata do Comercial
 
-| Tabela nova | Tabela legado | Classificação | Status |
-|---|---|---|---|
-| `DIM_CONDICAO_PAGAMENTO` | `USU_VBIACONDPGTO` | Dimensão | ✅ **Validada** — dados batem 100% com o legado |
-| `DIM_PRODUTO` | `USU_BVIPRODUTOS` | Dimensão | ✅ **Validada** — testada na VM, conferência batendo |
-| `DIM_REPRESENTANTE` | `USU_VBIREPRESENTANTES` | Dimensão | ✅ **Validada** — testada na VM, conferência batendo |
-| `DIM_REGIONAL` | `USU_VBIREGIONAIS` | Dimensão | ✅ **Validada** — testada na VM, conferência batendo (melhoria aplicada — ver abaixo) |
-| `FAT_METAS` | `USU_VBIMETAS` | Fato | ✅ **Validada (20/07/2026)** — testada com troca real de representante em produção (506 → 544), conferência bateu 100% (ver "Comercial finalizado") |
-| `DIM_CLIENTE` | `USU_BVIACLIENTES` | Dimensão | ✅ **Validada (17/07/2026)** — 3 bugs de Bronze encontrados e corrigidos na conferência (ver observação abaixo); MINUS final bateu 0 dos dois lados |
-| `FAT_FATURAMENTO` | `USU_VBIAFATURAMENTO` | Fato | ✅ **Validada (20/07/2026)** — testada na VM, índices da Bronze corrigidos, validação extra por agregado mensal batendo 100% (ver "Comercial finalizado") |
+
+| Tabela nova              | Tabela legado           | Classificação | Status                                                                                                                                                   |
+| ------------------------ | ----------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DIM_CONDICAO_PAGAMENTO` | `USU_VBIACONDPGTO`      | Dimensão      | ✅ **Validada** — dados batem 100% com o legado                                                                                                           |
+| `DIM_PRODUTO`            | `USU_BVIPRODUTOS`       | Dimensão      | ✅ **Validada** — testada na VM, conferência batendo                                                                                                      |
+| `DIM_REPRESENTANTE`      | `USU_VBIREPRESENTANTES` | Dimensão      | ✅ **Validada** — testada na VM, conferência batendo                                                                                                      |
+| `DIM_REGIONAL`           | `USU_VBIREGIONAIS`      | Dimensão      | ✅ **Validada** — testada na VM, conferência batendo (melhoria aplicada — ver abaixo)                                                                     |
+| `FAT_METAS`              | `USU_VBIMETAS`          | Fato          | ✅ **Validada (20/07/2026)** — testada com troca real de representante em produção (506 → 544), conferência bateu 100% (ver "Comercial finalizado")       |
+| `DIM_CLIENTE`            | `USU_BVIACLIENTES`      | Dimensão      | ✅ **Validada (17/07/2026)** — 3 bugs de Bronze encontrados e corrigidos na conferência (ver observação abaixo); MINUS final bateu 0 dos dois lados       |
+| `FAT_FATURAMENTO`        | `USU_VBIAFATURAMENTO`   | Fato          | ✅ **Validada (20/07/2026)** — testada na VM, índices da Bronze corrigidos, validação extra por agregado mensal batendo 100% (ver "Comercial finalizado") |
+
 
 **As 7 tabelas do Comercial estão construídas e testadas na VM.** Ver seção "Comercial finalizado" logo abaixo.
 
 ---
+
+
 
 ## Comercial finalizado (20/07/2026)
 
@@ -58,19 +71,23 @@ Todas as 7 tabelas testadas na VM (extração + conferência). Achados relevante
 
 ---
 
+
+
 ## Laudos RMA (20/07/2026, em andamento)
 
 Segunda área a migrar, seguindo o mesmo processo do Comercial: analisar os 5 scripts legados (`aquario/laudos_rma/extract/`), decidir `DIM_`/`FAT_`, confirmar que a Bronze já tem tudo, só depois criar a Prata.
 
 ### Tabelas da Prata do Laudos RMA
 
-| Tabela nova | Tabela legado | Classificação | Origem | Status |
-|---|---|---|---|---|
-| `DIM_RECLASSIF_DEFEITOS` | `USU_VBIARMA_RECLASSIF_DEFEITOS` | Dimensão | Excel (`Z:\Dados\DefeitosProdutosRMA.xlsx`, aba `DescDefeitos`) | 🔶 Pronta — aguardando teste na VM |
-| `DIM_RECLASSIF_PRODUTOS` | `USU_VBIARMA_RECLASSIF_PRODUTOS` | Dimensão | Excel (mesmo arquivo, aba `ClassifProdutos`) | 🔶 Pronta — aguardando teste na VM |
-| `DIM_INDICE_RMA` | `USU_VBIARMA_INDICE_RMA` | Dimensão | Excel (`Z:\Dados\IndiceRMA.xlsx`, aba `Planilha1`) | 🔶 Pronta — aguardando teste na VM |
-| `FAT_VENDAS_RMA` | `USU_VBIARMA_VENDAS` | Fato | DW_BRONZE (E140NFV, E140IPV, E140IDE, E001TNS) | ✅ **Validada (20/07/2026)** — reescrita (agregação + window function) testada na VM: 3,6s total (contra 190s do legado e >1h30 da 1ª versão); conferência bateu com 1 linha de diferença (nota do dia corrente, esperado) |
-| `FAT_LAUDOS` | `USU_VBIARMA_LAUDOS` | Fato | DW_BRONZE (USU_TLAUITE + 13 JOINs) | ✅ **Validada (20/07/2026)** — testada na VM depois de 2 correções na Bronze (ver seção própria); conferência caiu de 35 mil divergências pra 1 linha (laudo aberto no dia, esperado) |
+
+| Tabela nova              | Tabela legado                    | Classificação | Origem                                                          | Status                                                                                                                                                                                                                    |
+| ------------------------ | -------------------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DIM_RECLASSIF_DEFEITOS` | `USU_VBIARMA_RECLASSIF_DEFEITOS` | Dimensão      | Excel (`Z:\Dados\DefeitosProdutosRMA.xlsx`, aba `DescDefeitos`) | 🔶 Pronta — aguardando teste na VM                                                                                                                                                                                        |
+| `DIM_RECLASSIF_PRODUTOS` | `USU_VBIARMA_RECLASSIF_PRODUTOS` | Dimensão      | Excel (mesmo arquivo, aba `ClassifProdutos`)                    | 🔶 Pronta — aguardando teste na VM                                                                                                                                                                                        |
+| `DIM_INDICE_RMA`         | `USU_VBIARMA_INDICE_RMA`         | Dimensão      | Excel (`Z:\Dados\IndiceRMA.xlsx`, aba `Planilha1`)              | 🔶 Pronta — aguardando teste na VM                                                                                                                                                                                        |
+| `FAT_VENDAS_RMA`         | `USU_VBIARMA_VENDAS`             | Fato          | DW_BRONZE (E140NFV, E140IPV, E140IDE, E001TNS)                  | ✅ **Validada (20/07/2026)** — reescrita (agregação + window function) testada na VM: 3,6s total (contra 190s do legado e >1h30 da 1ª versão); conferência bateu com 1 linha de diferença (nota do dia corrente, esperado) |
+| `FAT_LAUDOS`             | `USU_VBIARMA_LAUDOS`             | Fato          | DW_BRONZE (USU_TLAUITE + 13 JOINs)                              | ✅ **Validada (20/07/2026)** — testada na VM depois de 2 correções na Bronze (ver seção própria); conferência caiu de 35 mil divergências pra 1 linha (laudo aberto no dia, esperado)                                      |
+
 
 **Ordem de construção**: das mais simples pras mais delicadas — `DIM_RECLASSIF_DEFEITOS` → `DIM_RECLASSIF_PRODUTOS` → `DIM_INDICE_RMA` → `FAT_VENDAS_RMA` → `FAT_LAUDOS` (por último, de propósito — é a mais complexa das 5).
 
@@ -82,15 +99,17 @@ Segunda área a migrar, seguindo o mesmo processo do Comercial: analisar os 5 sc
 
 ### Corte de data do Laudos RMA — diferente do Comercial
 
-O legado do Laudos RMA (`vbilaudos.py` e `vbivendas.py`) já filtrava `DATENT`/`DATEMI` `>= 01/01/2023` — diferente do corte de `01/01/2021` usado no Comercial. Regra 2 da Fase 2: só aplicamos corte novo quando o legado não tinha nenhum; aqui o legado já cortava em 2023, então o corte foi **mantido em `01/01/2023`** (`DATA_CORTE_LAUDOS` em `laudos_rma/config/settings.py`), não trocado pelo padrão de 2021.
+O legado do Laudos RMA (`vbilaudos.py` e `vbivendas.py`) já filtrava `DATENT`/`DATEMI` `>= 01/01/2023` — diferente do corte de `01/01/2021` usado no Comercial. Regra 2 da Fase 2: só aplicamos corte novo quando o legado não tinha nenhum; aqui o legado já cortava em 2023, então o corte foi **mantido em** `01/01/2023` (`DATA_CORTE_LAUDOS` em `laudos_rma/config/settings.py`), não trocado pelo padrão de 2021.
 
 ### `FAT_LAUDOS` — melhorias de eficiência propostas e aplicadas (20/07/2026)
 
 Diferente de tudo migrado no Comercial (sempre 1 query SQL + upsert/full_reload, sem lógica em pandas), `vbilaudos.py` calcula em Python: prazo (usa `date.today()`), reincidência (merge com uma segunda query), macro-região, classificação de entrega, chaves compostas. Usuário pediu para propor melhorias de eficiência, não só replicar — aplicadas 2, mantida 1 decisão de não mexer:
 
 1. **Reincidência: window function em vez de self-join.** O legado calculava "a entrada anterior mais recente do mesmo número de série" com um self-join (`USU_TLAUITE`/`E440NFC` contra si mesma, `T1.DATENT > Tz.DATENT` + `GROUP BY MAX(Tz.DATENT)`) — custo que cresce mal (O(n²)-like) por número de série. Trocado por `LAG(DATENT) OVER (PARTITION BY USU_SERMAC ORDER BY DATENT)` — matematicamente equivalente (o maior valor anterior numa sequência ordenada É o valor imediatamente anterior), porque a query original usa o MESMO filtro tanto pro "atual" quanto pro "anterior" do cálculo (confirmado lendo os dois `WHERE`). Validado pela `conferencia_fat_laudos.py` (MINUS dado a dado) antes de ser considerada pronta — mesma régua de sempre.
-2. **`_int_str()` vetorizado.** A versão original convertia `NUMBER` do Oracle pra string linha a linha via `.apply()` em Python puro. Trocado por `pd.to_numeric` + `Int64` (vetorizado), mesmo resultado nos 3 casos (numérico, nulo, já-texto).
+2. `_int_str()` **vetorizado.** A versão original convertia `NUMBER` do Oracle pra string linha a linha via `.apply()` em Python puro. Trocado por `pd.to_numeric` + `Int64` (vetorizado), mesmo resultado nos 3 casos (numérico, nulo, já-texto).
 3. **Não alterado**: `DS_PRAZO`/`REINCIDENTE`/`MACRO_REGIAO`/etc. já usam `np.select`/`np.where` (vetorizado) — mantidos exatamente iguais ao legado, sem reescrever pra SQL. Mesmo critério usado pra rejeitar a deduplicação do `FUNDPOB` no `FAT_FATURAMENTO`: risco de reescrever lógica de negócio sem poder testar contra Oracle real não compensa o ganho.
+
+
 
 ### Bug encontrado na conferência do `FAT_LAUDOS` (20/07/2026): 4 tabelas de referência zeradas na Bronze
 
@@ -100,7 +119,7 @@ Causa raiz (1): mesmo bug do `E085CLI` (Comercial) — essas 4 tabelas de refer�
 
 Causa raiz (2): depois do fix acima, `USU_TLAUCOR` ainda só trouxe 8 das 16 linhas (as outras 3 vieram completas). `USU_TLAUCOR` tinha `tem_codemp: True` (filtrando `USU_CODEMP = 1`) — confirmado no Sapiens (`SELECT USU_CODEMP, COUNT(*) ... GROUP BY`) que 8 linhas têm `USU_CODEMP = 1` e 8 têm `USU_CODEMP = 0` (marcador de "global", não lixo). É referência global igual as 3 irmãs (`USU_TLAUPRB`/`SIT`/`TIP`, todas `tem_codemp: False`). **Corrigido**: `tem_codemp` virou `False` também.
 
-Causa raiz (3): depois dos 2 fixes acima, sobraram 30 divergências (6 + 24), todas ligadas a atividade do dia (20/07/2026). Comparando campo a campo, a diferença real estava em `APETRA`/`CODTRA`/`DATEMI` (e os 2 campos calculados em cima deles) — vindos de `E140NFV`/`E073TRA`, que são **tabelas compartilhadas com o Comercial** (mantidas pelo extrator do Comercial, não pelo do Laudos RMA). Rodar `laudos_rma.bronze.extrator` não atualiza essas duas. **Resolvido rodando `comercial.bronze.extrator`** também — não foi bug de catálogo, foi só lembrar que o Laudos RMA depende de tabelas de outra área.
+Causa raiz (3): depois dos 2 fixes acima, sobraram 30 divergências (6 + 24), todas ligadas a atividade do dia (20/07/2026). Comparando campo a campo, a diferença real estava em `APETRA`/`CODTRA`/`DATEMI` (e os 2 campos calculados em cima deles) — vindos de `E140NFV`/`E073TRA`, que são **tabelas compartilhadas com o Comercial** (mantidas pelo extrator do Comercial, não pelo do Laudos RMA). Rodar `laudos_rma.bronze.extrator` não atualiza essas duas. **Resolvido rodando** `comercial.bronze.extrator` também — não foi bug de catálogo, foi só lembrar que o Laudos RMA depende de tabelas de outra área.
 
 **Resultado final**: conferência caiu de 35.534 para 1 linha (um laudo aberto no dia corrente, ainda "AGUARDANDO MOV DE ESTOQUE" — a Prata capturou um registro mais recente que o próprio legado, cujo ciclo de 15 min ainda não tinha rodado de novo; mesma tolerância de não-atomicidade já documentada no `DIM_CLIENTE`). `FAT_LAUDOS` considerado validado.
 
@@ -120,27 +139,65 @@ Mesmo princípio da correção da reincidência no `FAT_LAUDOS`: trocar "recalcu
 
 ---
 
+
+
+## OPEX (21/07/2026, levantamento concluído)
+
+Terceira área a migrar, mesmo processo do Comercial/Laudos RMA: analisar o legado (`aquario/opex/extract/`), decidir `DIM_`/`FAT_`, confirmar que a Bronze já tem tudo, só depois criar a Prata. Diferença desta área: o legado **nunca teve tabelas de dimensão separadas** — é 1 script/1 tabela só, já denormalizada.
+
+### Tabela da Prata do OPEX
+
+
+| Tabela nova          | Tabela legado            | Classificação | Origem (Bronze)                                               | Status                                                                                                                         |
+| -------------------- | ------------------------ | ------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `FAT_ORCAMENTO_OPEX` | `USU_VBIAOPEX_ORCAMENTO` | Fato          | `USU_T650ORC`, `USU_T650CUS`, `E044CCU`, `E043PCM`, `R910USU` | ✅ **Validada (21/07/2026)** — testada na VM, conferência bateu 100% depois de isolar o resíduo de não-atomicidade (ver abaixo) |
+
+
+**Decisão: 1 única tabela, sem separar em dimensões.** `vbiopex.py` (legado) faz `FULL OUTER JOIN` entre orçamento (`USU_T650ORC`) e realizado (`USU_T650CUS`), enriquecendo com descrição de centro de custo (`E044CCU`), plano de contas (`E043PCM`) e nome de dono/coordenador (`R910USU`, join duplo) — tudo já embutido no resultado, sem tabelas de apoio separadas no legado. Diferente do Comercial (7 scripts→7 tabelas, cada um já era uma entidade própria no legado), aqui não existe precedente de dimensão separada — criar `DIM_CENTRO_CUSTO`/`DIM_PLANO_CONTAS`/`DIM_USUARIO` agora seria redesenho de modelo estrela, fora do escopo desta fase (Regra da Fase 2 é replicar fielmente a arquitetura Bronze/Prata, não redesenhar o data model). Classificação **FATO**: tem `ORCADO`/`REALIZADO` mensurável por período (`COMP`) × centro de custo (`CC`) × despesa (`CDESP`).
+
+**Nome escolhido**: `FAT_ORCAMENTO_OPEX` (sufixo `_OPEX`, mesmo padrão do `_RMA` no Laudos RMA) — schema `DW_PRATA` é compartilhado entre áreas, sufixo evita colisão futura com um eventual `FAT_ORCAMENTO` de outra área. Confirmado com o usuário em 21/07/2026.
+
+**Cobertura da Bronze**: 100% — as 5 tabelas Oracle usadas por `vbiopex.py` já existem no catálogo `dw_aquario/opex/bronze/tabelas.py` e já rodam em produção (upsert/full incremental via `carregar_bronze()`/`upsert_cross_servidor()`). Nada precisa ser criado na Bronze para esta área. Auditoria do `tem_codfil` (Regra 6) já cobriu o OPEX em 17/07/2026 — nenhuma das 5 tabelas tem conceito de filial, então não há esse bug aqui.
+
+**Mudança de arquitetura real para esta área**: o legado lê **direto do Sapiens Controladoria** (servidor separado, 172.16.0.123/dbprod) a cada execução. A Prata nova vai ler **só da** `DW_BRONZE` (Regra 2 da Fase 2 — "lê da Bronze, nunca da fonte direto") — a Bronze já faz essa ponte via `get_engine_controladoria()`/`get_engine_bronze()` (2 engines cross-servidor, sem DB LINK entre eles). Isso é a mudança estrutural desta migração: o script Prata do OPEX não vai mais precisar da engine de Controladoria, só da engine da Prata (mesmo padrão do `fat_metas.py` do Comercial).
+
+**Ponto investigado (não é bug) — PK de** `USU_T650CUS` **diverge do JOIN legado**: o catálogo da Bronze (`opex/bronze/tabelas.py`) já sinalizava isso como pendência de investigação. PK real de `USU_T650CUS` tem 6 colunas (inclui `USU_CTAEMP`), mas o `JOIN` do `vbiopex.py` usa só 5 (sem `USU_CTAEMP`) para casar com `USU_T650ORC`. Analisado em 21/07/2026: **não é bug** — `ORCADO` (`T1.USU_ORCMES`) não é somado, só carregado como atributo agrupado (mesmo valor repetido a cada linha duplicada do `FULL OUTER JOIN`); `REALIZADO` é `SUM(T0.USU_SALMES)`, que agrega corretamente todas as linhas de `USU_T650CUS` com `CTAEMP` diferente para a mesma chave de 5 colunas, via `GROUP BY`. Replicando o mesmo `JOIN` de 5 colunas na Prata (Bronze guarda a granularidade real via PK de 6 colunas, mas a query da Prata decide o agrupamento, igual sempre foi no legado), o resultado fica idêntico ao legado — confirmar isso na conferência quando a tabela for construída.
+
+**Particularidade mantida**: `CODEMP IN (1, 50)` (2 razões sociais do grupo Aquário, exceção já documentada em `opex/config/settings.py` — diferente do resto do projeto, que é sempre `CODEMP = 1`) e `USU_CODMPC = '801'` — filtros do legado, mantidos sem alteração.
+
+**Tipo de carga proposto**: `full_reload` — mesmo motivo do legado e do `FAT_FATURAMENTO` do Comercial: `FULL OUTER JOIN` sem chave natural estável para upsert (a combinação de colunas do `GROUP BY` não é uma PK física de nenhum lado).
+
+**Prata criada (21/07/2026)**: `dw_aquario/opex/prata/fat_orcamento_opex.py` (query idêntica à do legado, trocando as 5 fontes de `SAPIENS.`* na Controladoria pelas mesmas tabelas em `DW_BRONZE`, lendo via `get_engine_prata()` — não precisa mais de `get_engine_controladoria()` aqui) + `dw_aquario/opex/prata/tabelas.py` (catálogo, mesmo padrão do `comercial/prata/tabelas.py`) + `dw_aquario/conferencias/dw_prata/conferencia_fat_orcamento_opex.py` (MINUS dado a dado contra `BIAQUARIO.USU_VBIAOPEX_ORCAMENTO`, mesmo padrão do `conferencia_fat_faturamento.py`). Nenhuma coluna nova foi adicionada — as 15 colunas do legado (`EMP`, `COMP`, `CC`, `CDESP`, `ORCADO`, `REALIZADO`, `CCUSTO`, `TPCC`, `DESPESA`, `PROD`, `CODDONO`, `DONO`, `QUARTER`, `CODCOORD`, `COORD`) são as mesmas na Prata.
+
+**Validada (21/07/2026)**: 1ª rodada da conferência (feita com o legado já um tempo sem rodar) bateu **26 divergências**, todas com a mesma assinatura: mesma chave dos dois lados, `REALIZADO` com valor na Prata e `NULL` no legado, só em `COMP` = mês corrente (julho/2026, ainda em aberto). Diferente das outras áreas, o legado do OPEX **não roda em ciclo automático de 2 em 2 min** (apesar de `opex/orquestrador.py` estar preparado para isso) — na prática o disparo é **manual** (`opex/gatilho_manual.py`), então o intervalo entre uma atualização do legado e outra pode ser bem maior que nas demais áreas, alargando a janela de não-atomicidade. Confirmado rodando o disparo manual do legado, seguido imediatamente de `opex.bronze.extrator` + `opex.prata.fat_orcamento_opex` + a conferência de novo: a divergência caiu de 26 para **1 linha** (mesma assinatura -- despesa lançada no Sapiens no intervalo de ~25s entre o fim do disparo manual do legado e o início da nossa extração). Mesmo mecanismo de não-atomicidade já documentado no `DIM_CLIENTE` e no `FAT_LAUDOS` -- não é bug de lógica, é o legado e a Prata lendo o Sapiens em instantes diferentes enquanto o mês está em aberto e despesas continuam sendo lançadas. `FAT_ORCAMENTO_OPEX` considerada validada.
+
+**Gatilho manual/disparo/orquestrador ficam para a fase 3**, junto com as demais áreas.
+
+---
+
+
+
 ## Regras de negócio fixas da Fase 2
 
 1. **Nomenclatura**: `FAT_`/`DIM_` + nome da entidade, tudo maiúsculo. Fato = tem medida quantificável por período/dimensão (ex.: faturamento, meta). Dimensão = entidade descritiva (cliente, produto, representante), mesmo carregando algum atributo agregado.
 2. **Corte de data**: `01/01/2021` pra frente, em toda tabela **FATO** com grão de data, de todas as áreas. **Dimensão nunca tem corte** (sempre o universo completo e atual das entidades — ex.: todo cliente cadastrado aparece em `DIM_CLIENTE`, independente de quando foi cadastrado). Esse corte só muda o que aparece no Power BI se a área/tabela **não** já tivesse um corte parecido no legado — isso é conferido tabela por tabela antes de aplicar, exatamente pra não mudar resultado sem avisar.
 3. **Resultado idêntico ao legado é obrigatório**: cada tabela só é considerada pronta depois de uma conferência formal (dado a dado, não só contagem de linhas) contra a tabela correspondente no schema legado (`BIAQUARIO`). Ver seção "Validação" abaixo.
-4. **Metadado técnico — `DW_DATA_INGESTAO` (Bronze) / `DW_DATA_PROCESSAMENTO` (Prata)**: toda tabela, nas duas camadas, ganha essa coluna automaticamente, registrando quando aquela linha foi gravada/atualizada pela última vez. Implementado de forma centralizada no `core/loader.py` — nenhum script de área precisa se preocupar com isso, é automático em toda escrita. Nomes diferentes por camada porque a ação é diferente (Bronze ingere, Prata processa).
+4. **Metadado técnico —** `DW_DATA_INGESTAO` **(Bronze) /** `DW_DATA_PROCESSAMENTO` **(Prata)**: toda tabela, nas duas camadas, ganha essa coluna automaticamente, registrando quando aquela linha foi gravada/atualizada pela última vez. Implementado de forma centralizada no `core/loader.py` — nenhum script de área precisa se preocupar com isso, é automático em toda escrita. Nomes diferentes por camada porque a ação é diferente (Bronze ingere, Prata processa).
 5. **Índice comum (não PK) na chave de merge**: toda tabela nova (Bronze ou Prata) já nasce com índice, criado automaticamente no momento da criação da tabela — não precisa de retrofit depois. É índice comum, não constraint de PK (performance de busca praticamente igual, mas não trava a criação se existir alguma duplicata). Tabelas `full_reload` (como `FAT_FATURAMENTO`) não criam índice automático — se precisar, é caso a caso.
-6. **`tem_codfil` na Bronze: só `True` se o(s) script(s) legado(s) fixarem a filial explicitamente** (ex.: `AND X.CODFIL = 1`). Bug real encontrado em 17/07/2026: 10 tabelas do catálogo do Comercial (`E120IPD`, `E120PED`, `E140IPV`, `E140ISV`, `E140NFV`, `E440IPC`, `E440NFC`, `E085HCL`, `E140IDE`, `E140PVD`) estavam com `tem_codfil: True` sem nenhum script legado realmente restringir filial nos JOINs que as usam — a maioria só filtra `CODEMP` (empresa), ou casa `CODFIL` dinamicamente com a filial da própria linha (`X.CODFIL = Y.CODFIL`), nunca fixando `= 1`. A Bronze filtrada silenciosamente descartava registros de outras filiais, e isso só apareceu na conferência dado-a-dado — contagem de linhas não pega esse tipo de erro. **Regra pra qualquer área nova**: antes de marcar uma tabela do catálogo Bronze como `tem_codfil: True`, confirmar no script legado (JOIN e WHERE) que a filial é fixada em `1` ali — se for casamento dinâmico ou não houver filtro de filial nenhum, é `tem_codfil: False` (Bronze traz o universo completo; quem decide o escopo de filial é a query consumidora na Prata, igual o legado sempre fez). Ver observação de `E140NFV` em `comercial/bronze/tabelas.py` para o caso completo investigado. **Auditoria estendida a todas as áreas em 17/07/2026** — ver seção "Correção do `tem_codfil` nas demais áreas da Bronze" logo abaixo: mais 9 tabelas corrigidas (Estoque, Produção, Laudos RMA), 2 confirmadas corretas como estavam (Expedição, Rastreabilidade).
-7. **Nova coluna em tabela de origem (Sapiens) precisa ser avisada precisamente, sempre — combinado com o usuário em 20/07/2026.** Qualquer inclusão de coluna em qualquer tabela do Sapiens usada pelo projeto (em qualquer área) precisa ser informada (nome da tabela + nome da coluna) assim que o usuário souber, mesmo que a coluna ainda não vá ser usada em nenhuma Prata. Motivo: tabelas com carga `upsert` (MERGE incremental) já existem no Oracle com estrutura fixa — se o Sapiens ganha uma coluna nova e a Bronze não é atualizada primeiro, o **próximo ciclo incremental quebra com `ORA-00904`** (coluna referenciada no MERGE não existe na tabela de destino), porque `upsert()` monta o SQL dinamicamente a partir das colunas do DataFrame extraído (`SELECT *`), não da estrutura antiga da tabela Oracle. Tabelas `full_reload`/`full_reload_streaming` não têm esse problema (tabela é dropada e recriada do zero a cada ciclo, a coluna nova entra sozinha) — mas o aviso vale igual, pra manter o catálogo e a documentação em dia. Ver seção "Procedimento: nova coluna em tabela de origem" logo abaixo para o passo a passo.
+6. `tem_codfil` **na Bronze: só** `True` **se o(s) script(s) legado(s) fixarem a filial explicitamente** (ex.: `AND X.CODFIL = 1`). Bug real encontrado em 17/07/2026: 10 tabelas do catálogo do Comercial (`E120IPD`, `E120PED`, `E140IPV`, `E140ISV`, `E140NFV`, `E440IPC`, `E440NFC`, `E085HCL`, `E140IDE`, `E140PVD`) estavam com `tem_codfil: True` sem nenhum script legado realmente restringir filial nos JOINs que as usam — a maioria só filtra `CODEMP` (empresa), ou casa `CODFIL` dinamicamente com a filial da própria linha (`X.CODFIL = Y.CODFIL`), nunca fixando `= 1`. A Bronze filtrada silenciosamente descartava registros de outras filiais, e isso só apareceu na conferência dado-a-dado — contagem de linhas não pega esse tipo de erro. **Regra pra qualquer área nova**: antes de marcar uma tabela do catálogo Bronze como `tem_codfil: True`, confirmar no script legado (JOIN e WHERE) que a filial é fixada em `1` ali — se for casamento dinâmico ou não houver filtro de filial nenhum, é `tem_codfil: False` (Bronze traz o universo completo; quem decide o escopo de filial é a query consumidora na Prata, igual o legado sempre fez). Ver observação de `E140NFV` em `comercial/bronze/tabelas.py` para o caso completo investigado. **Auditoria estendida a todas as áreas em 17/07/2026** — ver seção "Correção do `tem_codfil` nas demais áreas da Bronze" logo abaixo: mais 9 tabelas corrigidas (Estoque, Produção, Laudos RMA), 2 confirmadas corretas como estavam (Expedição, Rastreabilidade).
+7. **Nova coluna em tabela de origem (Sapiens) precisa ser avisada precisamente, sempre — combinado com o usuário em 20/07/2026.** Qualquer inclusão de coluna em qualquer tabela do Sapiens usada pelo projeto (em qualquer área) precisa ser informada (nome da tabela + nome da coluna) assim que o usuário souber, mesmo que a coluna ainda não vá ser usada em nenhuma Prata. Motivo: tabelas com carga `upsert` (MERGE incremental) já existem no Oracle com estrutura fixa — se o Sapiens ganha uma coluna nova e a Bronze não é atualizada primeiro, o **próximo ciclo incremental quebra com** `ORA-00904` (coluna referenciada no MERGE não existe na tabela de destino), porque `upsert()` monta o SQL dinamicamente a partir das colunas do DataFrame extraído (`SELECT `*), não da estrutura antiga da tabela Oracle. Tabelas `full_reload`/`full_reload_streaming` não têm esse problema (tabela é dropada e recriada do zero a cada ciclo, a coluna nova entra sozinha) — mas o aviso vale igual, pra manter o catálogo e a documentação em dia. Ver seção "Procedimento: nova coluna em tabela de origem" logo abaixo para o passo a passo.
 
 ---
+
+
 
 ## Procedimento: nova coluna em tabela de origem (Sapiens)
 
 Sempre que o time de negócio incluir uma coluna nova em qualquer tabela do Sapiens usada pelo projeto (Regra 7 acima):
 
 1. **Confirmar se a tabela é usada em algum catálogo da Bronze** (`<area>/bronze/tabelas.py`, em qualquer uma das 7 áreas). Se a tabela não aparecer em nenhum catálogo, não precisa fazer nada agora — não extraímos ela (caso real: `USU_TANYMKTPED`, verificado em 20/07/2026, não usada em nenhuma área, atual ou legado).
-
-2. **Se a tabela for usada e a estratégia de carga for `upsert` (incremental)**: a coluna precisa existir na Bronze **antes** do próximo ciclo, senão o `MERGE` quebra com `ORA-00904`. Passo a passo:
-
-    ```sql
+2. **Se a tabela for usada e a estratégia de carga for** `upsert` **(incremental)**: a coluna precisa existir na Bronze **antes** do próximo ciclo, senão o `MERGE` quebra com `ORA-00904`. Passo a passo:
+  ```sql
     -- a) Descobrir o tipo exato da coluna nova no Sapiens
     SELECT column_name, data_type, data_length, data_precision, data_scale
     FROM ALL_TAB_COLUMNS
@@ -149,13 +206,13 @@ Sempre que o time de negócio incluir uma coluna nova em qualquer tabela do Sapi
     -- b) Adicionar a mesma coluna na Bronze, com o mesmo tipo
     --    (sem NOT NULL -- linhas já existentes ficam NULL nessa coluna, esperado)
     ALTER TABLE DW_BRONZE.<TABELA> ADD (<COLUNA> <TIPO_IGUAL_AO_SAPIENS>);
-    ```
-
-3. **Se a estratégia for `full_reload`/`full_reload_streaming`**: não precisa de `ALTER TABLE` — a tabela é dropada e recriada do zero no próximo ciclo, a coluna nova entra sozinha (o `SELECT *` da extração já traz ela). Mesmo assim, o aviso continua valendo — mantém o catálogo com contexto de quando/por que a coluna apareceu.
-
-4. **A coluna nova só aparece na Prata se algum script `prata/<tabela>.py` referenciar ela explicitamente no `SELECT`** — Bronze é cópia crua (toda coluna via `SELECT *`), Prata é sempre um `SELECT` deliberado com lista de colunas explícita. Incluir na Prata é decisão de negócio separada, feita quando fizer sentido usar o campo — não é automático só porque a coluna existe na Bronze.
+  ```
+3. **Se a estratégia for** `full_reload`**/**`full_reload_streaming`: não precisa de `ALTER TABLE` — a tabela é dropada e recriada do zero no próximo ciclo, a coluna nova entra sozinha (o `SELECT `* da extração já traz ela). Mesmo assim, o aviso continua valendo — mantém o catálogo com contexto de quando/por que a coluna apareceu.
+4. **A coluna nova só aparece na Prata se algum script** `prata/<tabela>.py` **referenciar ela explicitamente no** `SELECT` — Bronze é cópia crua (toda coluna via `SELECT `*), Prata é sempre um `SELECT` deliberado com lista de colunas explícita. Incluir na Prata é decisão de negócio separada, feita quando fizer sentido usar o campo — não é automático só porque a coluna existe na Bronze.
 
 ---
+
+
 
 ## Correção do `tem_codfil` nas demais áreas da Bronze (17/07/2026)
 
@@ -163,26 +220,30 @@ Depois de fechar `DIM_CLIENTE` no Comercial, foi feita uma auditoria completa do
 
 ### Tabelas corrigidas (mesmo bug do Comercial — `tem_codfil: True` → `False`)
 
-| Área | Tabela | Como era | Como ficou |
-|---|---|---|---|
-| Estoque | `E420IPO` | `tem_codfil: True` — Bronze descartava itens de OC de filiais ≠ 1 | `tem_codfil: False` — `vbicompras.py` legado não tem nenhum filtro de `CODEMP`/`CODFIL` no `WHERE`; `CODFIL` só aparece no JOIN com `E420OCP` (`T0.CODFIL = T1.CODFIL`, casamento dinâmico) |
-| Estoque | `E420OCP` | idem acima | idem acima — mesmo motivo, mesmo JOIN dinâmico |
-| Produção | `E210MVP` | `tem_codfil: True` — Bronze descartava movimentação de outras filiais | `tem_codfil: False` — bloco CONSUMO de `vbidesempenho.py` nunca referencia `CODFIL` desta tabela em nenhum JOIN/WHERE |
-| Produção | `E621MTC` | `tem_codfil: True` | `tem_codfil: False` — usada em 2 pontos de `vbidesempenho.py` (subconsulta `TAXREA` e bloco CUSTO_CC), nenhum filtra `CODFIL` — PK real nem inclui `CODFIL` |
-| Produção | `E900COP` | `tem_codfil: True` | `tem_codfil: False` — `vbidesempenho.py` junta por `CODEMP+CODORI+NUMORP` em 2 blocos, nunca por `CODFIL` |
-| Produção | `E930MPR` | `tem_codfil: True` | `tem_codfil: False` — bloco PARADAS de `vbidesempenho.py` não filtra `CODFIL` nem no `WHERE` nem nos JOINs |
-| Laudos RMA | `USU_TLAUITE` | `tem_codfil: True` | `tem_codfil: False` — `vbilaudos.py` não tem filtro de `USU_CODFIL` no `WHERE`; só casamento dinâmico nos JOINs (`T0.USU_CODFIL = T1.USU_CODFIL`, `T0.USU_CODFIL = T15.FILNFV`) |
-| Laudos RMA | `USU_TLAUGER` | `tem_codfil: True` | `tem_codfil: False` — mesmo motivo do `USU_TLAUITE` |
-| Laudos RMA | `USU_VZRASLAU` | `tem_codfil: True` | `tem_codfil: False` — casamento dinâmico dos dois lados que a consomem (`vbilaudos.py` e `vbirastreabilidade.py`); quem fixa filial é sempre a query consumidora, nunca esta view |
+
+| Área       | Tabela         | Como era                                                              | Como ficou                                                                                                                                                                                  |
+| ---------- | -------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Estoque    | `E420IPO`      | `tem_codfil: True` — Bronze descartava itens de OC de filiais ≠ 1     | `tem_codfil: False` — `vbicompras.py` legado não tem nenhum filtro de `CODEMP`/`CODFIL` no `WHERE`; `CODFIL` só aparece no JOIN com `E420OCP` (`T0.CODFIL = T1.CODFIL`, casamento dinâmico) |
+| Estoque    | `E420OCP`      | idem acima                                                            | idem acima — mesmo motivo, mesmo JOIN dinâmico                                                                                                                                              |
+| Produção   | `E210MVP`      | `tem_codfil: True` — Bronze descartava movimentação de outras filiais | `tem_codfil: False` — bloco CONSUMO de `vbidesempenho.py` nunca referencia `CODFIL` desta tabela em nenhum JOIN/WHERE                                                                       |
+| Produção   | `E621MTC`      | `tem_codfil: True`                                                    | `tem_codfil: False` — usada em 2 pontos de `vbidesempenho.py` (subconsulta `TAXREA` e bloco CUSTO_CC), nenhum filtra `CODFIL` — PK real nem inclui `CODFIL`                                 |
+| Produção   | `E900COP`      | `tem_codfil: True`                                                    | `tem_codfil: False` — `vbidesempenho.py` junta por `CODEMP+CODORI+NUMORP` em 2 blocos, nunca por `CODFIL`                                                                                   |
+| Produção   | `E930MPR`      | `tem_codfil: True`                                                    | `tem_codfil: False` — bloco PARADAS de `vbidesempenho.py` não filtra `CODFIL` nem no `WHERE` nem nos JOINs                                                                                  |
+| Laudos RMA | `USU_TLAUITE`  | `tem_codfil: True`                                                    | `tem_codfil: False` — `vbilaudos.py` não tem filtro de `USU_CODFIL` no `WHERE`; só casamento dinâmico nos JOINs (`T0.USU_CODFIL = T1.USU_CODFIL`, `T0.USU_CODFIL = T15.FILNFV`)             |
+| Laudos RMA | `USU_TLAUGER`  | `tem_codfil: True`                                                    | `tem_codfil: False` — mesmo motivo do `USU_TLAUITE`                                                                                                                                         |
+| Laudos RMA | `USU_VZRASLAU` | `tem_codfil: True`                                                    | `tem_codfil: False` — casamento dinâmico dos dois lados que a consomem (`vbilaudos.py` e `vbirastreabilidade.py`); quem fixa filial é sempre a query consumidora, nunca esta view           |
+
 
 Todas as 9 correções seguem exatamente o padrão já documentado na Regra 6: o legado nunca fixava a filial em `1` para essas tabelas — ou não filtrava nada, ou casava dinamicamente com a filial da linha relacionada. A Bronze com `tem_codfil: True` estava descartando silenciosamente dados de filiais diferentes de 1, o mesmo mecanismo do bug já corrigido no Comercial.
 
 ### Tabelas confirmadas corretas como estavam (`tem_codfil: True` mantido)
 
-| Área | Tabela | Por que está correto |
-|---|---|---|
-| Expedição | `USU_V120EST` | `vbiexpedicao.py` fixa `PED.CODFIL = 1` no `WHERE` da tabela-âncora (`E120PED`); o JOIN dinâmico (`EST.CODFIL = PED.CODFIL`) fica transitivamente restrito a filial 1 |
+
+| Área            | Tabela        | Por que está correto                                                                                                                                                            |
+| --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Expedição       | `USU_V120EST` | `vbiexpedicao.py` fixa `PED.CODFIL = 1` no `WHERE` da tabela-âncora (`E120PED`); o JOIN dinâmico (`EST.CODFIL = PED.CODFIL`) fica transitivamente restrito a filial 1           |
 | Rastreabilidade | `USU_T140QRC` | `vbirastreabilidade.py` fixa `IPV.CODFIL = 1` no `WHERE` da tabela-âncora (`E140IPV`); o JOIN dinâmico (`IPV.CODFIL = QRC.USU_CODFIL`) fica transitivamente restrito a filial 1 |
+
 
 Padrão geral que emergiu: `tem_codfil: True` só está correto quando a **tabela-âncora** da query (a que dá nome ao `FROM` principal) já fixa a filial no `WHERE` — nesse caso, qualquer JOIN dinâmico a partir dela herda essa restrição. Quando não existe esse fixador em nenhum lugar da cadeia de JOINs, `tem_codfil` tem que ser `False`.
 
@@ -217,31 +278,41 @@ Não é o mesmo bug do `tem_codfil` — é um problema de infraestrutura isolado
 
 ---
 
+
+
 ## Pontos de atenção por tabela (Comercial)
 
+
+
 ### `DIM_CONDICAO_PAGAMENTO` — validada
+
 Lógica idêntica ao legado, sem observação especial.
 
 ### `DIM_PRODUTO` — pronta
+
 Sem observação de negócio especial. Um JOIN da query original (com a família de produto) não é usado em nenhuma coluna final — mantido exatamente como estava, não é objetivo desta migração alterar o que já está validado.
 
 ### `DIM_REPRESENTANTE` — pronta
+
 Sem observação de negócio especial.
 
 ### `DIM_REGIONAL` — pronta
+
 A query original tinha nomes de responsável fixos pra 3 regionais específicas e 1 login que não formata bem pela regra genérica, misturados dentro do cálculo principal. Essas exceções foram isoladas num bloco separado no topo da query — mesmo resultado, mas fácil de achar e de estender (basta acrescentar uma linha, sem mexer no restante da lógica).
 
 ### `FAT_METAS` — pronta
+
 A query original não tem nenhum corte de data — **mantido assim de propósito**. Meta histórica pode precisar ficar visível sem corte, diferente do faturamento; não aplicamos o `01/01/2021` aqui sem confirmar antes que faz sentido pro time de Analytics.
 
 ### `DIM_CLIENTE` — validada (17/07/2026), 3 bugs de Bronze encontrados e corrigidos na conferência
+
 Tem um cálculo pesado (1ª/2ª/3ª/4ª compra de cada cliente) que reprocessa todo o histórico de vendas a cada execução. Decisão: manter a lógica exatamente igual ao legado — é insumo de métrica de recorrência/churn, não vale o risco de mudar o cálculo sem uma validação bem cuidadosa. Uma otimização fica como ideia pra um momento futuro dedicado, não agora.
 
 **Bug encontrado na conferência (1)**: 28.984 clientes (≈20%) divergiram do legado — não em formatação, mas com a sequência de 1ª/2ª/3ª/4ª compra deslocada (faltava a compra mais antiga). Causa raiz: o catálogo da Bronze (`comercial/bronze/tabelas.py`) filtrava `CODFIL = 1` nas 7 tabelas grandes/transacionais (`E120IPD`, `E120PED`, `E140IPV`, `E140ISV`, `E140NFV`, `E440IPC`, `E440NFC`), mas nenhum script legado (nem `vbicliente.py`, nem `vbifaturamento.py`) filtra `CODFIL` — sempre consideraram todas as filiais da empresa 1. Confirmado com uma nota fiscal real de 2018 sob `CODFIL=2` que sumia da Bronze. **Corrigido**: `tem_codfil` virou `False` nas 7 tabelas (mantendo `tem_codemp: True`).
 
 **Bug encontrado na conferência (2)**: depois do fix acima, a divergência caiu 92% (pra 2.266 clientes), mas ficou um resíduo estável (sempre os mesmos clientes/valores, não some sozinho). Causa raiz: 3 tabelas auxiliares (`E085HCL`, `E140IDE`, `E140PVD`) também filtravam `CODFIL = 1` na Bronze, mas são usadas em JOIN sem essa restrição nos scripts legados (`E140IDE`: casamento só por `NUMNFV`/pela filial da própria nota; `E085HCL`/`E140PVD`: casamento dinâmico pela filial da linha no `FAT_FATURAMENTO`). **Corrigido**: as 3 viraram `tem_codfil: False` também.
 
-Como as duas correções mudam o universo de dados, precisa dropar as tabelas afetadas na `DW_BRONZE` (as 7 grandes + `E085HCL`, `E140IDE`, `E140PVD`) e deixar a próxima execução refazer a carga antes de reconferir. **Afeta também o `FAT_FATURAMENTO`**, que usa as mesmas tabelas.
+Como as duas correções mudam o universo de dados, precisa dropar as tabelas afetadas na `DW_BRONZE` (as 7 grandes + `E085HCL`, `E140IDE`, `E140PVD`) e deixar a próxima execução refazer a carga antes de reconferir. **Afeta também o** `FAT_FATURAMENTO`, que usa as mesmas tabelas.
 
 **Bug encontrado na conferência (3)**: depois dos 2 fixes acima, a divergência caiu pra 35 clientes (99,98% de melhoria) — mas os 35 restantes não eram bug de filial. Comparando Sapiens direto x legado (ambos batendo entre si) x Bronze (diferente dos dois), a causa era outra: `E085CLI` sincronizava incremental por `DATATU >= SYSDATE-60`, mas `DATATU` não captura toda edição de cadastro (endereço, número) — o legado nunca teve esse problema porque relê a base inteira a cada execução (sem filtro de data nenhum), usando `MERGE` só como estratégia de escrita, não de leitura. **Corrigido**: `coluna_data` de `E085CLI` virou `None` — Bronze agora também relê a tabela inteira a cada ciclo (~145 mil linhas, barato), igual ao legado.
 
@@ -250,9 +321,12 @@ Como as duas correções mudam o universo de dados, precisa dropar as tabelas af
 **Resultado final**: com a Bronze corrigida e conferida (contagem + conteúdo, ver `conferencia_comercial.py`), `conferencia_dim_cliente.py` bateu **0 divergências dos dois lados** — `[OK] Dados idênticos`. A pequena diferença de contagem que ainda aparece entre Prata e legado (2 linhas, numa tabela com 145 mil) é esperada: o legado atualiza ao vivo a cada poucos minutos, e a conferência não é atômica (conta os dois lados, depois faz o MINUS, em queries separadas) — não é sinal de dado faltando, o MINUS já prova isso. `DIM_CLIENTE` está considerado validado.
 
 ### `FAT_FATURAMENTO` — pronta
-A mais complexa das 7: mistura pedidos em aberto (que mudam de valor com o tempo) com vendas e devoluções já emitidas (que não mudam mais). **Decisão confirmada (17/07/2026): mantém `full_reload`**, igual ao legado — os mesmos motivos que levaram a essa estratégia no legado continuam valendo aqui (não faz sentido reorganizar o modelo do Power BI pra ganhar um incremental parcial). Duas melhorias de baixo risco aplicadas (colunas de rastreio de origem adicionadas, hint de banco desatualizado removido); uma terceira melhoria (deduplicar um cálculo repetido) foi cogitada e **descartada conscientemente** — o risco de mexer numa query financeira sem poder testar antes de entregar não compensava o ganho.
+
+A mais complexa das 7: mistura pedidos em aberto (que mudam de valor com o tempo) com vendas e devoluções já emitidas (que não mudam mais). **Decisão confirmada (17/07/2026): mantém** `full_reload`, igual ao legado — os mesmos motivos que levaram a essa estratégia no legado continuam valendo aqui (não faz sentido reorganizar o modelo do Power BI pra ganhar um incremental parcial). Duas melhorias de baixo risco aplicadas (colunas de rastreio de origem adicionadas, hint de banco desatualizado removido); uma terceira melhoria (deduplicar um cálculo repetido) foi cogitada e **descartada conscientemente** — o risco de mexer numa query financeira sem poder testar antes de entregar não compensava o ganho.
 
 ---
+
+
 
 ## Validação Prata x legado
 
