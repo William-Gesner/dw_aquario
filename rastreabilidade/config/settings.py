@@ -47,3 +47,24 @@ CODFIL_AQUARIO = 1
 # ----- JANELA DE INCREMENTAL DA BRONZE -----
 
 JANELA_INCREMENTAL_DIAS = 60
+
+# ----- CORTE DE DATA DA PRATA -----
+
+# O legado (vbirastreabilidade.py) já filtrava DATEMI/USU_DATGER
+# >= 01/01/2023 (formato 'RRRR/MM/DD', comparação por TO_CHAR) -- mantido
+# igual, não trocado pelo padrão de 2021 usado no Comercial (Regra 2 da
+# Fase 2: só aplicamos corte novo quando o legado não tinha nenhum).
+DATA_CORTE_RASTREABILIDADE = "2023/01/01"
+
+# ----- CAMINHOS DE ARQUIVOS EXTERNOS -----
+
+# Pasta local na VM (drive Z:) onde ficam os arquivos Excel -- mesmo
+# caminho já usado pelo legado (rastreabilidade/config/settings.py).
+PASTA_DADOS_EXTERNOS = Path(r"Z:\Dados")
+
+# MetaMix.xlsx -- usado para enriquecer os dados de rastreabilidade com
+# MIX e ORIGEM de cada produto (aba: Cadastro, colunas: Cd_Item,
+# Cd_Com_Mix, Cd_Com_Ori). O JOIN é feito em Python antes de salvar no
+# banco -- replica o comportamento do legado. Decisão de 07/07/2026:
+# arquivos Excel ficam FORA da Bronze (ver rastreabilidade/bronze/tabelas.py).
+EXCEL_METAMIX = PASTA_DADOS_EXTERNOS / "MetaMix.xlsx"

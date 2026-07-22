@@ -80,12 +80,12 @@ PASTA_SCRIPTS = PROJECT_ROOT / "comercial" / "prata"
 # Mesma ordem do catálogo (comercial/prata/tabelas.py) -- das dimensões
 # mais simples até os 2 fatos, do menos pro mais delicado.
 SCRIPTS = [
-    "dim_condicao_pagamento",
-    "dim_produto",
-    "dim_representante",
-    "dim_regional",
-    "fat_metas",
-    "dim_cliente",
+#    "dim_condicao_pagamento",
+#    "dim_produto",
+#    "dim_representante",
+#    "dim_regional",
+#    "fat_metas",
+#    "dim_cliente",
     "fat_faturamento",
 ]
 
