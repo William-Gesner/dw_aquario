@@ -30,7 +30,8 @@ Com as 7 áreas de negócio já migradas pra Bronze, a Fase 2 recria a camada **
 | Laudos RMA                                    | **5/5 tabelas construídas, testadas na VM e consideradas finalizadas** (21/07/2026) — ver seção "Laudos RMA finalizado"            |
 | OPEX                                          | **1/1 tabela construída, testada na VM e validada** (21/07/2026) — ver seção "OPEX"                                                |
 | Rastreabilidade                               | **1/1 tabela construída, testada na VM e validada** (21/07/2026) — ver seção "Rastreabilidade"                                     |
-| Produção, Estoque, Expedição                  | Não iniciada                                                                                                                       |
+| Produção                                      | **Prata criada (21/07/2026)** — 7/7 tabelas prontas, aguardando extração/conferência na VM (ver seção "Produção")                  |
+| Estoque, Expedição                            | Não iniciada                                                                                                                       |
 
 
 ### Tabelas da Prata do Comercial
@@ -204,6 +205,91 @@ A conferência revelou 3 causas de divergência em sequência, todas resolvidas 
 `FAT_RASTREABILIDADE` depende de **3 extratores de Bronze diferentes**, mantidos por 3 áreas distintas: `comercial.bronze.extrator` (`E140IPV`, `E140NFV`, `E085CLI`, `E090REP`, `E026RAM`, `E075PRO`, `E120IPD`), `rastreabilidade.bronze.extrator` (`USU_T140QRC`, a única exclusiva) e `laudos_rma.bronze.extrator` (`USU_VZRASLAU`). Rodar só o extrator da própria área **não é suficiente** para a Prata da Rastreabilidade ficar correta -- as 3 causas de divergência desta validação vieram exatamente disso. Quando o orquestrador definitivo da Rastreabilidade for desenhado (fase 3), ele precisa garantir que os 3 extratores estejam em dia antes de rodar `fat_rastreabilidade.py` -- não necessariamente rodando os 3 dentro do próprio ciclo da Rastreabilidade (isso duplicaria trabalho já feito pelos orquestradores das outras áreas), mas pelo menos confirmando que os ciclos do Comercial e do Laudos RMA já rodaram recentemente o suficiente.
 
 **Rastreabilidade encerrada (21/07/2026).** Única tabela da área validada e considerada fechada, mesmo critério do Comercial e do OPEX.
+
+---
+
+## Produção (21/07/2026, Prata criada)
+
+Quinta área a migrar, mesmo processo das anteriores: analisar os 7 scripts legados (`aquario/producao/extract/`), decidir `DIM_`/`FAT_`, confirmar que a Bronze já tem tudo, só depois criar a Prata. Diferente do OPEX/Rastreabilidade (1 tabela só), a Produção tem 7 tabelas — mais parecida em escala com o Comercial.
+
+### Tabelas da Prata da Produção
+
+| Tabela nova | Tabela legado | Classificação | Carga | Status |
+|---|---|---|---|---|
+| `DIM_PRODUTO_PRODUCAO` | `USU_VBIAPROD_PRODUTO` | Dimensão | upsert | 🔶 Pronta — aguardando teste na VM |
+| `DIM_CENTRO_CUSTO_PRODUCAO` | `USU_VBIAPROD_CENTROCUSTO` | Dimensão | upsert | 🔶 2 correções aplicadas (21-22/07/2026 — chave de merge + `NULL` duplicando linha, ver seção própria) — precisa dropar a tabela na VM e retestar do zero |
+| `DIM_CUSTO_PADRAO_PRODUCAO` | `USU_VBIAPROD_CUSTO_PADRAO` | Dimensão | full_reload (Excel) | 🔶 Pronta — aguardando teste na VM |
+| `FAT_PARADAS_PRODUCAO` | `USU_VBIAPROD_PARADAS` | Fato | full_reload | 🔶 Pronta — aguardando teste na VM |
+| `FAT_CUSTO_CC_PRODUCAO` | `USU_VBIAPROD_CUSTOCC` | Fato | full_reload | 🔶 Pronta — aguardando teste na VM |
+| `FAT_UTILIZACAO_META_PRODUCAO` | `USU_VBIAPROD_UTILIZACAO_META` | Fato | full_reload (Excel) | 🔶 Pronta — aguardando teste na VM |
+| `FAT_DESEMPENHO_PRODUCAO` | `USU_VBIAPROD_DESEMPENHO` | Fato (central) | full_reload | 🔶 Pronta — aguardando teste na VM |
+
+**Sufixo `_PRODUCAO` em todas** — já existe `DIM_PRODUTO` no Comercial, com campos completamente diferentes (a versão da Produção tem `CODORI`, `CODAGE`, `CURABC`, `DEPPAD`, específicos de manufatura); sem o sufixo colidiria no schema `DW_PRATA` compartilhado.
+
+**Cobertura da Bronze: 100%, já estava pronta.** O catálogo `producao/bronze/tabelas.py` já tinha as 16 tabelas exclusivas documentadas (desde 08/07/2026), incluindo a auditoria de `tem_codfil` de 17/07/2026 (4 correções: `E210MVP`, `E621MTC`, `E900COP`, `E930MPR`). Nada precisou ser criado na Bronze.
+
+**Dependência de outro extrator (Regra 8)**: `DIM_PRODUTO_PRODUCAO` e o bloco CONSUMO de `FAT_DESEMPENHO_PRODUCAO` usam `E012FAM`/`E013AGP`/`E075DER`/`E075PRO` — tabelas mantidas pelo `comercial.bronze.extrator`, não pelo da Produção. Precisa dele rodado em dia antes de validar essas duas tabelas.
+
+### Corte de data: `01/01/2021` em TODAS as tabelas FATO — decisão explícita, diferente da Regra 2 padrão
+
+O legado da Produção usava `01/01/2018` (`DATA_INICIO_HISTORICO`) em `FAT_PARADAS_PRODUCAO` e nos blocos DESEMPENHO/CONSUMO de `FAT_DESEMPENHO_PRODUCAO`, e **nenhum corte** em `FAT_CUSTO_CC_PRODUCAO` e no bloco CUSTO_CC de `FAT_DESEMPENHO_PRODUCAO`. **Confirmado com o usuário em 21/07/2026: `01/01/2021` em TODAS** — inclusive nas duas que nunca tiveram corte nenhum no legado. Isso é uma exceção deliberada à Regra 2 padrão da Fase 2 (que só aplicaria corte novo onde o legado não tinha nenhum, e manteria 2018 onde já existia um corte) — aqui foi pedido explicitamente o padrão único de 2021 pra toda a área, mesmo custando janela de histórico a mais (2018-2020) e volume nas duas tabelas que nunca foram cortadas antes. Constante nova: `DATA_CORTE_PRODUCAO = "01/01/2021"` em `producao/config/settings.py`.
+
+**Consequência nas conferências**: como o corte muda o volume visível (Prata sempre vai ter MENOS linhas que o legado nas 4 tabelas FATO), as conferências dessas 4 tabelas (`fat_paradas_producao`, `fat_custo_cc_producao`, `fat_utilizacao_meta_producao`, `fat_desempenho_producao`) aplicam o MESMO filtro de `01/01/2021` no lado do legado antes de comparar — senão a divergência de contagem apareceria sempre, mascarando uma divergência de conteúdo de verdade. O que valida é se os dados de 2021 em diante batem 100% dos dois lados; o legado ter mais linhas (histórico anterior a 2021) é esperado, não é bug.
+
+### Bug encontrado e corrigido: `DIM_CENTRO_CUSTO_PRODUCAO` descartava operações duplicadas (21/07/2026)
+
+Primeira rodada da conferência bateu **9 divergências** (mesma contagem: 133=133, mas conteúdo diferente em 9 grupos). Todas as 9 tinham o mesmo padrão: mesma `CODCCU`+`CODETG`+`CODCRE`, mas `CODOPR`/`DESOPR`/`ABROPR` diferentes (ex.: Prata `251302 CORTE 249MM` x legado `251301 CORTE`).
+
+Causa raiz: a chave de merge do legado (`chaves_merge = [CODCCU, CODETG, CODCRE]`, sem `CODOPR`) — copiada fielmente pra Prata — não reflete a granularidade real da query, que é por `E720OPR` (a tabela-âncora do `FROM`, PK real `CODEMP+CODOPR`). Quando mais de uma operação existe pro mesmo centro de custo/estágio/centro de recurso, o `MERGE` só guarda 1 por grupo — tanto no legado quanto na Prata, cada lado "sorteando" uma arbitrariamente (não existe critério de desempate real: `coluna_ordem="CODCCU ASC"` não desempata nada dentro de um grupo, porque `CODCCU` já é constante ali).
+
+**Confirmado com consulta direta em `E720OPR`** (Sapiens e Bronze, idênticas — não é problema de Bronze desatualizada): não são só os 9 casos visíveis — existem **21 grupos reais** com mais de 1 operação (a maioria "escondida" porque os dois lados coincidentemente sortearam a mesma operação vencedora). O pior caso, `CCU=4200/ETG=71/CRE=7101` ("Montagem Conversores"), tem **23 operações diferentes** reduzidas a 1 registro só.
+
+**Corrigido**: `CODOPR` incluído na `chaves_merge` (`dim_centro_custo_producao.py` e catálogo `tabelas.py`) — a tabela passa de ~133 para **~194 linhas** (133 − 21 grupos truncados + 82 operações reais desses mesmos grupos). Não é inflação de dado, é a granularidade correta que sempre existiu em `E720OPR` e nunca apareceu no Power BI (nem no legado).
+
+**Consequência pra conferência**: como o legado tem a MESMA limitação (não é fonte de verdade nesse ponto específico), o padrão de conferência do projeto (MINUS simétrico, esperando 0 dos dois lados) não se aplica aqui — vai sempre acusar "só na Prata" com as ~61 linhas a mais, por design. `conferencia_dim_centro_custo_producao.py` foi reescrita com 2 testes diferentes:
+
+1. **Regressão contra o legado** (`só no legado` deve ser 0): garante que a Prata não perdeu nada que o legado já tinha — é sempre um superconjunto, nunca um subconjunto.
+2. **Completude contra a fonte de verdade** (query de referência reexecutada direto na Bronze, mesma lógica do script de carga): garante que a carga (upsert, conversão de tipo) preservou exatamente o que a query deveria trazer — pega bug de carga, não de lógica de negócio (essa parte já foi validada à parte, direto no Sapiens).
+
+Essa é a **primeira exceção real à Regra 3** da Fase 2 ("resultado idêntico ao legado, 0 divergências") — registrado aqui porque pode se repetir: qualquer tabela migrada cuja chave de merge do legado não capture a granularidade real da query-âncora tem o mesmo risco. Vale conferir isso cedo (antes de rodar a conferência padrão) em áreas futuras que também usem `upsert` com chave composta.
+
+### 2º bug encontrado na mesma tabela: `NULL` na chave de merge duplica linha a cada execução (22/07/2026)
+
+Depois da correção acima, o reteste na VM mostrou um problema novo: `Linhas na Prata: 204` contra `Linhas na query de referência (Bronze): 195` — 9 linhas a mais na Prata, mesmo com o **Teste 2** (completude) acusando só 1 divergência (`só na referência`). A aritmética não fechava: se a Prata tem 204 linhas físicas mas só diverge em 1 da referência (195 linhas), sobra a conclusão de que a Prata tinha **linhas fisicamente duplicadas** (mesma chave completa, 2 cópias).
+
+Diagnóstico direto na VM confirmou: **10 grupos** (`SELECT CODCCU, CODETG, CODCRE, CODOPR, COUNT(*) ... HAVING COUNT(*) > 1`) apareceram com `CODOPR` **vazio/`NULL`** e `COUNT(*) = 2`. São exatamente 10 dos 11 códigos da lista hardcoded do 2º bloco do `UNION ALL` (centros de recurso sem estágio) — o 11º (`CODCRE='2540'`) tem uma operação real vinculada (`254001`), por isso não duplicou.
+
+**Causa raiz**: o 2º bloco faz `LEFT JOIN` de `E720OPR` — pra esses 10 códigos de `CODCRE`, não existe nenhuma operação vinculada, então `OPR.CODOPR` vem `NULL`. Como `CODOPR` passou a fazer parte da `chaves_merge` (correção anterior), e em SQL `NULL = NULL` **nunca** é verdadeiro, a condição `ON` do `MERGE` nunca reconhecia a linha já existente como "a mesma" — cada execução do script inseria uma cópia nova, silenciosamente, pra sempre (bug que cresceria a cada ciclo se não fosse pego agora).
+
+**Corrigido**: `NVL(OPR.CODOPR, ' ')` no 2º bloco de `dim_centro_custo_producao.py` — mesma convenção que a própria query já usava pra `CODETG`/`DESETG`/`ABRETG` nesse mesmo bloco (`0 AS CODETG`, `' ' AS DESETG` etc., pra representar "não se aplica"). A conferência (`conferencia_dim_centro_custo_producao.py`) também precisou normalizar `CODOPR` com `NVL(CODOPR, ' ')` na lista de colunas comparadas — sem isso, o legado (que guarda `NULL` de verdade, nunca teve esse problema porque `CODOPR` nunca fez parte da chave dele) sempre divergiria da Prata (que agora guarda `' '`) nesses 10 registros, um falso positivo.
+
+**Necessário na VM**: como `upsert()` nunca remove linha, as duplicatas já criadas pelas execuções anteriores continuam na tabela até um `DROP TABLE DW_PRATA.DIM_CENTRO_CUSTO_PRODUCAO` + recarga do zero — só rodar o script de novo (sem dropar) não limpa o que já duplicou.
+
+**Lição geral, vale pra qualquer área futura**: nenhuma coluna usada em `chaves_merge` pode ser nullable sem tratamento (`NVL`/`COALESCE`) antes — coluna com `NULL` numa chave de merge faz o `MERGE` duplicar em vez de atualizar, silenciosamente, todo ciclo. Isso é particularmente fácil de esquecer quando a chave inclui uma coluna vinda de `LEFT JOIN` (que é exatamente onde `NULL` aparece com mais frequência).
+
+### 3º achado na mesma tabela: `CODCRE='2540'` duplicado no próprio legado, `NULL` x `' '` mascarando (22/07/2026)
+
+Depois do fix (2), a tabela foi dropada e recarregada do zero: `195` linhas extraídas, mas só `194` salvas fisicamente (o `upsert()` dedupa dentro da própria carga quando duas linhas da mesma extração compartilham a chave completa). A conferência confirmou: `Teste 1 [OK]` (nada perdido do legado), mas `Teste 2` mostrou 1 divergência (`só na referência`) — sempre a mesma linha, `CODCRE='2540'`/`CODOPR='254001'`.
+
+Investigado com uma consulta rotulando a origem de cada linha (`'BLOCO1'`/`'BLOCO2'`): confirmado que **`CODCRE='2540'` produz 2 linhas com a MESMA chave completa** (`CODCCU`, `CODETG=0`, `CODCRE`, `CODOPR`) — uma vinda do bloco 1 (JOIN natural, porque essa operação já tem `CODETG=0` de verdade no Sapiens) e outra do bloco 2 (lista hardcoded do legado, que já incluía `2540` mesmo sem precisar — a operação já tinha cobertura natural). As duas descrevem o **mesmo fato real**, mas com uma diferença cosmética: `DESETG`/`ABRETG` vêm `NULL` no bloco 1 (o `LEFT JOIN` com `E093ETG` não acha nada pra `CODETG=0`) e `' '` (espaço, hardcoded) no bloco 2 — visualmente idênticos numa tela, mas `NULL ≠ ' '` numa comparação exata. A Prata (com o `MERGE` deduplicando pela chave) guardou 1 das 2 versões; a query de referência (sem dedup, propositalmente, pra pegar bug de carga) contava as 2 como registros distintos.
+
+**Não é bug**: é uma redundância que já existia na lista hardcoded do legado (incluir `2540`, que nunca precisou da lista pra ter estágio, já era coberto pelo bloco 1) — só nunca apareceu porque a chave de merge antiga (sem `CODOPR`) escondia isso, igual escondeu as outras 21 duplicações. **Corrigido só na conferência** (não na carga -- `DESETG`/`ABRETG` não fazem parte da `chaves_merge`, então isso nunca causou duplicação de linha, só uma diferença cosmética de comparação): `NVL(DESETG, ' ')` e `NVL(ABRETG, ' ')` adicionados à lista de colunas comparadas em `conferencia_dim_centro_custo_producao.py`, mesmo princípio já usado pro `CODOPR`.
+
+**Não precisa recarregar a Prata de novo por causa deste achado** — só a conferência mudou (comparação, não carga). Rodar `conferencia_dim_centro_custo_producao.py` de novo deve fechar os 2 testes em `[OK]`.
+
+### Ponto em aberto resolvido: `DIM_CUSTO_PADRAO_PRODUCAO` é dimensão, não fato
+
+`USU_VBIAPROD_CUSTO_PADRAO` (legado) não tem nenhuma coluna de período — só `CODEMPRESA`, `PRODUTO`, `CUSTO_PADRAO`. Antes de classificar, consultamos o legado diretamente: `324 linhas = 324 produtos distintos`, sem nenhuma duplicidade. Confirma que é 1 valor fixo por produto (atributo atual, sem grão de tempo) — `DIM_CUSTO_PADRAO_PRODUCAO`, sem corte de data (Regra 2 — dimensão nunca corta).
+
+### `FAT_DESEMPENHO_PRODUCAO` — fato central, maior risco da área
+
+UNION ALL de 4 naturezas diferentes (`TIPTAB` 1-4: apontamento de processo, consumo de matéria-prima, paradas, custo orçado/realizado), mesmo padrão de denormalização do `FAT_FATURAMENTO` no Comercial. Tem 3 subqueries correlacionadas no bloco DESEMPENHO (mesmo padrão que causou o problema de 1h30 no `FAT_VENDAS_RMA` do Laudos RMA), rodando sobre `E900EOQ` — provavelmente a maior tabela fonte da área. **Decisão: construir fiel ao legado primeiro (a sintaxe já é `JOIN` ANSI moderno em todo o legado da Produção, nada pra modernizar), medir o tempo real na VM, e só depois avaliar redesenho se realmente for lento** — mesma régua conservadora já usada no `FAT_FATURAMENTO` e na `FAT_RASTREABILIDADE`.
+
+Conferência usa colunas dinâmicas (via `ALL_TAB_COLUMNS`, não lista hardcoded) — mesma técnica do `FAT_LAUDOS` (Laudos RMA), ~37 colunas, risco real de erro de transcrição manual numa lista tão grande.
+
+**Observação sobre comentário desatualizado no legado**: o docstring de `vbidesempenho.py` justificava `full_reload` citando "`Ds_Prazo`... laudos em aberto mudam a qualquer ciclo" — terminologia do Laudos RMA, não da Produção (parece um comentário copiado do template errado durante o desenvolvimento original do legado). Não é bug funcional, só comentário — corrigido no `fat_desempenho_producao.py` novo com a justificativa real (UNION ALL de 4 naturezas sem chave única comum, mesmo motivo do `FAT_FATURAMENTO`).
+
+**Próximo passo**: rodar `comercial.bronze.extrator` (dependência) + `producao.bronze.extrator` na VM, depois as 7 tabelas da Prata (`producao.prata.dim_produto_producao`, `dim_centro_custo_producao`, `dim_custo_padrao_producao`, `fat_paradas_producao`, `fat_custo_cc_producao`, `fat_utilizacao_meta_producao`, `fat_desempenho_producao`), e por fim as 7 conferências correspondentes em `conferencias.dw_prata` (precisa do `GRANT SELECT` em cada tabela legada equivalente, se ainda não existir).
 
 ---
 

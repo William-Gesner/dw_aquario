@@ -45,3 +45,26 @@ CODFIL_AQUARIO = 1
 # ----- JANELA DE INCREMENTAL DA BRONZE -----
 
 JANELA_INCREMENTAL_DIAS = 60
+
+# ----- CORTE DE DATA DA PRATA -----
+
+# Decisão confirmada com o usuário em 21/07/2026: TODAS as tabelas FATO
+# da Produção com grão de data usam 01/01/2021 -- inclusive as que o
+# legado cortava em 01/01/2018 (FAT_PARADAS_PRODUCAO, blocos DESEMPENHO/
+# CONSUMO de FAT_DESEMPENHO_PRODUCAO) e as que o legado não cortava
+# nenhuma (FAT_CUSTO_CC_PRODUCAO, bloco CUSTO_CC de
+# FAT_DESEMPENHO_PRODUCAO) -- diferente da regra geral da Fase 2 (só
+# aplicar corte novo quando o legado não tinha nenhum), aqui foi pedido
+# explicitamente o padrão único de 2021 pra toda a área.
+DATA_CORTE_PRODUCAO = "01/01/2021"
+
+# ----- CAMINHOS DE ARQUIVOS EXTERNOS -----
+
+# Pasta local na VM (drive Z:) onde ficam os arquivos Excel -- mesmo
+# caminho já usado pelo legado (producao/config/settings.py).
+PASTA_DADOS_EXTERNOS = Path(r"Z:\Dados")
+
+# TempoDisponivelCC.xlsx -- usado por DOIS módulos (Estoque e Produção).
+#   Aba BD : meta de utilização por CC e dia   -> vbiutilizacaometa.py (ESTE módulo)
+#   Aba CP : custo padrão por produto          -> vbicustopadrao.py    (ESTE módulo e Estoque)
+EXCEL_TEMPO_DISPONIVEL = PASTA_DADOS_EXTERNOS / "TempoDisponivelCC.xlsx"
