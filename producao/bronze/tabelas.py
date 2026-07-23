@@ -197,7 +197,7 @@ TABELAS = [
     {
         "tabela": "E900COP",
         "chaves_pk": ["CODEMP", "CODORI", "NUMORP"],
-        "coluna_data": "DATGER",
+        "coluna_data": None,
         "tem_codemp": True,
         "coluna_codemp": "CODEMP",
         "tem_codfil": False,
@@ -208,7 +208,22 @@ TABELAS = [
             "E900COP (como T0) em 2 blocos (TIPTAB=1 e TIPTAB=2) só por "
             "CODEMP+CODORI+NUMORP, nunca por CODFIL (a tabela nem tem "
             "coluna CODFIL referenciada na query). Mesmo padrão de bug já "
-            "corrigido no Comercial."
+            "corrigido no Comercial. "
+            "BUG CORRIGIDO (23/07/2026): coluna_data era DATGER (data de "
+            "GERAÇÃO/planejamento da OP, não de alteração) -- achado via "
+            "conferência de FAT_DESEMPENHO_PRODUCAO: OPs continuam mudando "
+            "SITORP/DTRFIM (abre -> fecha) muito depois de geradas (3 "
+            "casos confirmados com DATGER 77 a 288 dias antes da janela "
+            "de 60 dias), então o incremental nunca mais recapturava essas "
+            "mudanças -- Bronze ficava com SITORP/DTRFIM congelados no "
+            "estado de quando a OP ainda estava dentro da janela. "
+            "Confirmado via ALL_TAB_COLUMNS que E900COP NÃO tem nenhuma "
+            "coluna real de última alteração (só DATGER, USUGER, ROTALT, "
+            "VERMOD -- nenhuma é data de alteração) -- sem alternativa "
+            "melhor, virou sempre full_reload (mesmo critério das outras "
+            "tabelas desta área sem auditoria confiável, ver topo do "
+            "arquivo). Ver dw_aquario/doc_nova_arquitetura.md, seção "
+            "'Produção', pro histórico completo."
         ),
     },
     {

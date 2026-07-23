@@ -58,6 +58,25 @@ JANELA_INCREMENTAL_DIAS = 60
 # explicitamente o padrão único de 2021 pra toda a área.
 DATA_CORTE_PRODUCAO = "01/01/2021"
 
+# ----- JANELA DE BUSCA DO APONTAMENTO DE REFERÊNCIA (bloco CONSUMO) -----
+
+# NÃO confundir com DATA_CORTE_PRODUCAO acima -- são decisões diferentes.
+# DATA_CORTE_PRODUCAO decide QUAIS REGISTROS entram no histórico (regra de
+# negócio, 21/07/2026). Esta aqui é o alcance de uma busca TÉCNICA dentro
+# do bloco CONSUMO de fat_desempenho_producao.py: quando não há apontamento
+# (E900EOQ) com data exata igual ao movimento, a query cai num fallback que
+# procura "o apontamento mais próximo dessa OP", dentro desta janela.
+#
+# BUG CORRIGIDO (23/07/2026): essa busca usava DATA_CORTE_PRODUCAO (2021)
+# até essa correção -- registros de consumo logo após 01/01/2021 (ex.:
+# 05/01/2021) não achavam o apontamento de referência (dez/2020), porque a
+# busca não enxergava nada antes de 2021, e a Prata voltava com DATREA nulo
+# onde o legado (que usa DATA_INICIO_HISTORICO = 2018 nesse mesmo ponto,
+# ver aquario/producao/extract/vbidesempenho.py) achava o valor certo.
+# Corrigido usando o mesmo valor do legado aqui -- mantém as duas buscas
+# (a de negócio, 2021, e a técnica, 2018) desacopladas de propósito.
+DATA_MINIMA_APONTAMENTO_CONSUMO = "01/01/2018"
+
 # ----- CAMINHOS DE ARQUIVOS EXTERNOS -----
 
 # Pasta local na VM (drive Z:) onde ficam os arquivos Excel -- mesmo

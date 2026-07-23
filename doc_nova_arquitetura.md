@@ -216,13 +216,13 @@ Quinta área a migrar, mesmo processo das anteriores: analisar os 7 scripts lega
 
 | Tabela nova | Tabela legado | Classificação | Carga | Status |
 |---|---|---|---|---|
-| `DIM_PRODUTO_PRODUCAO` | `USU_VBIAPROD_PRODUTO` | Dimensão | upsert | 🔶 Pronta — aguardando teste na VM |
-| `DIM_CENTRO_CUSTO_PRODUCAO` | `USU_VBIAPROD_CENTROCUSTO` | Dimensão | upsert | 🔶 2 correções aplicadas (21-22/07/2026 — chave de merge + `NULL` duplicando linha, ver seção própria) — precisa dropar a tabela na VM e retestar do zero |
-| `DIM_CUSTO_PADRAO_PRODUCAO` | `USU_VBIAPROD_CUSTO_PADRAO` | Dimensão | full_reload (Excel) | 🔶 Pronta — aguardando teste na VM |
-| `FAT_PARADAS_PRODUCAO` | `USU_VBIAPROD_PARADAS` | Fato | full_reload | 🔶 Pronta — aguardando teste na VM |
-| `FAT_CUSTO_CC_PRODUCAO` | `USU_VBIAPROD_CUSTOCC` | Fato | full_reload | 🔶 Pronta — aguardando teste na VM |
-| `FAT_UTILIZACAO_META_PRODUCAO` | `USU_VBIAPROD_UTILIZACAO_META` | Fato | full_reload (Excel) | 🔶 Pronta — aguardando teste na VM |
-| `FAT_DESEMPENHO_PRODUCAO` | `USU_VBIAPROD_DESEMPENHO` | Fato (central) | full_reload | 🔶 Pronta — aguardando teste na VM |
+| `DIM_PRODUTO_PRODUCAO` | `USU_VBIAPROD_PRODUTO` | Dimensão | upsert | ✅ Validada (23/07/2026) — resíduo de `CODDER` corrigido (desempate amarrado ao legado) |
+| `DIM_CENTRO_CUSTO_PRODUCAO` | `USU_VBIAPROD_CENTROCUSTO` | Dimensão | upsert | ✅ Validada (22/07/2026) — 3 achados corrigidos, 194 linhas |
+| `DIM_CUSTO_PADRAO_PRODUCAO` | `USU_VBIAPROD_CUSTO_PADRAO` | Dimensão | full_reload (Excel) | ✅ Validada (23/07/2026) |
+| `FAT_PARADAS_PRODUCAO` | `USU_VBIAPROD_PARADAS` | Fato | full_reload | ✅ Validada (23/07/2026) |
+| `FAT_CUSTO_CC_PRODUCAO` | `USU_VBIAPROD_CUSTOCC` | Fato | full_reload | ✅ Validada (23/07/2026) |
+| `FAT_UTILIZACAO_META_PRODUCAO` | `USU_VBIAPROD_UTILIZACAO_META` | Fato | full_reload (Excel) | ✅ Validada (23/07/2026) |
+| `FAT_DESEMPENHO_PRODUCAO` | `USU_VBIAPROD_DESEMPENHO` | Fato (central) | full_reload | ✅ Validada (23/07/2026) — 6 achados corrigidos, 0/0 (353.645 = 353.645) |
 
 **Sufixo `_PRODUCAO` em todas** — já existe `DIM_PRODUTO` no Comercial, com campos completamente diferentes (a versão da Produção tem `CODORI`, `CODAGE`, `CURABC`, `DEPPAD`, específicos de manufatura); sem o sufixo colidiria no schema `DW_PRATA` compartilhado.
 
@@ -263,7 +263,7 @@ Diagnóstico direto na VM confirmou: **10 grupos** (`SELECT CODCCU, CODETG, CODC
 
 **Corrigido**: `NVL(OPR.CODOPR, ' ')` no 2º bloco de `dim_centro_custo_producao.py` — mesma convenção que a própria query já usava pra `CODETG`/`DESETG`/`ABRETG` nesse mesmo bloco (`0 AS CODETG`, `' ' AS DESETG` etc., pra representar "não se aplica"). A conferência (`conferencia_dim_centro_custo_producao.py`) também precisou normalizar `CODOPR` com `NVL(CODOPR, ' ')` na lista de colunas comparadas — sem isso, o legado (que guarda `NULL` de verdade, nunca teve esse problema porque `CODOPR` nunca fez parte da chave dele) sempre divergiria da Prata (que agora guarda `' '`) nesses 10 registros, um falso positivo.
 
-**Necessário na VM**: como `upsert()` nunca remove linha, as duplicatas já criadas pelas execuções anteriores continuam na tabela até um `DROP TABLE DW_PRATA.DIM_CENTRO_CUSTO_PRODUCAO` + recarga do zero — só rodar o script de novo (sem dropar) não limpa o que já duplicou.
+**Nota**: como `upsert()` nunca remove linha, essa correção exigiu um `DROP TABLE DW_PRATA.DIM_CENTRO_CUSTO_PRODUCAO` + recarga do zero na VM — só rodar o script de novo (sem dropar) não teria limpado as duplicatas já criadas pelas execuções anteriores.
 
 **Lição geral, vale pra qualquer área futura**: nenhuma coluna usada em `chaves_merge` pode ser nullable sem tratamento (`NVL`/`COALESCE`) antes — coluna com `NULL` numa chave de merge faz o `MERGE` duplicar em vez de atualizar, silenciosamente, todo ciclo. Isso é particularmente fácil de esquecer quando a chave inclui uma coluna vinda de `LEFT JOIN` (que é exatamente onde `NULL` aparece com mais frequência).
 
@@ -277,6 +277,22 @@ Investigado com uma consulta rotulando a origem de cada linha (`'BLOCO1'`/`'BLOC
 
 **Não precisa recarregar a Prata de novo por causa deste achado** — só a conferência mudou (comparação, não carga). Rodar `conferencia_dim_centro_custo_producao.py` de novo deve fechar os 2 testes em `[OK]`.
 
+### Bug encontrado e corrigido: `DIM_PRODUTO_PRODUCAO` — desempate de `CODDER` divergindo do legado (22/07/2026)
+
+Conferência (`conferencia_dim_produto_producao.py`) bateu contagem (10.987 = 10.987) mas **96 divergências** dos dois lados — sempre o mesmo padrão: mesma `CODEMP`+`CODPRO`, mesmas colunas de `E075PRO`/`E013AGP`/`E012FAM`, só `CODDER` (e nada mais) diferente.
+
+Causa raiz: mesmo problema estrutural do achado 1 em `DIM_CENTRO_CUSTO_PRODUCAO` (`CODOPR`), só que aqui não corrigido da mesma forma. `E075DER` tem PK real `CODEMP+CODPRO+CODDER` (confirmado em `comercial/bronze/tabelas.py`) — produtos com múltiplas derivações reais existem (ex.: `CODPRO='4K01'` com `CODDER` em `'B'`/`'N'`/`'U'`, todas ativas, sem coluna que indique qual é "a" principal). `chaves_merge = [CODEMP, CODPRO]` (igual ao legado) não captura essa granularidade, e o `MERGE` só guarda 1 `CODDER` por produto. Diferente do caso do `CODOPR`, aqui o `coluna_ordem` do legado (`CODPRO ASC`) nunca desempatou nada de verdade — a escolha sempre dependeu só da ordem física com que o Oracle devolvia as linhas do JOIN, que muda entre Sapiens (legado) e Bronze (Prata) mesmo com dados idênticos dos dois lados.
+
+**Confirmado por amostragem (10 dos 96 casos) que não existe regra de coluna por trás da escolha do legado** — em alguns grupos "parece" pegar o maior `CODDER` alfabético, em outros o menor, sem consistência. Não é uma regra de negócio escondida, é ordem física arbitrária congelada em produção há tempo indeterminado.
+
+**Decisão (22/07/2026, confirmada com o usuário)**: diferente do `CODOPR` (onde a chave foi ampliada), aqui **não** foi mudada a granularidade para `CODPRO+CODDER` — motivo já registrado antes (Power BI e `FAT_DESEMPENHO_PRODUCAO` relacionam por `CODPRO` só; mudar a chave causaria fan-out). Em vez disso, o usuário pediu paridade exata com o que já está em produção **agora**: a query passou a ter um `LEFT JOIN` com `BIAQUARIO.USU_VBIAPROD_PRODUTO` (o próprio legado) só para calcular uma coluna de prioridade (`PRIORIDADE_LEGADO = 0` quando o `CODDER` bate com o que já está gravado no legado, `1` caso contrário) — usada exclusivamente no `ORDER BY` do dedup via `ROW_NUMBER()` dentro do `MERGE` (`core/loader.py upsert()`), e removida do DataFrame antes da carga (`df.drop(columns=["PRIORIDADE_LEGADO"])`) para nunca virar coluna física em `DW_PRATA.DIM_PRODUTO_PRODUCAO`. Fallback determinístico (`CODDER ASC`) cobre produtos sem linha correspondente no legado (ex.: produto novo).
+
+**Limitação conhecida, registrada de propósito**: esse amarramento só funciona enquanto `USU_VBIAPROD_PRODUTO` existir. Quando o legado for desligado (fim da migração), a ambiguidade volta — nesse momento vai precisar de uma decisão de negócio real (ex.: revisitar a granularidade para `CODPRO+CODDER`, mesmo padrão já usado em `DIM_PRODUTO` do Comercial, aceitando o impacto de fan-out e a necessidade de atualizar `FAT_DESEMPENHO_PRODUCAO`/relacionamentos no Power BI). Não é uma solução definitiva, é uma ponte deliberada para o período de migração/paridade.
+
+**Nota**: diferente do achado do `CODOPR`, esta correção não exigiu dropar a tabela — a chave de merge (`CODEMP+CODPRO`) não mudou, então o `MERGE` só fez `UPDATE` das 96 linhas existentes com o `CODDER` corrigido, sem duplicar nada.
+
+**Confirmado na VM (23/07/2026)**: `dim_produto_producao.py` e `conferencia_dim_produto_producao.py` reexecutados — 0 divergências dos dois lados. `DIM_PRODUTO_PRODUCAO` considerada validada.
+
 ### Ponto em aberto resolvido: `DIM_CUSTO_PADRAO_PRODUCAO` é dimensão, não fato
 
 `USU_VBIAPROD_CUSTO_PADRAO` (legado) não tem nenhuma coluna de período — só `CODEMPRESA`, `PRODUTO`, `CUSTO_PADRAO`. Antes de classificar, consultamos o legado diretamente: `324 linhas = 324 produtos distintos`, sem nenhuma duplicidade. Confirma que é 1 valor fixo por produto (atributo atual, sem grão de tempo) — `DIM_CUSTO_PADRAO_PRODUCAO`, sem corte de data (Regra 2 — dimensão nunca corta).
@@ -289,7 +305,96 @@ Conferência usa colunas dinâmicas (via `ALL_TAB_COLUMNS`, não lista hardcoded
 
 **Observação sobre comentário desatualizado no legado**: o docstring de `vbidesempenho.py` justificava `full_reload` citando "`Ds_Prazo`... laudos em aberto mudam a qualquer ciclo" — terminologia do Laudos RMA, não da Produção (parece um comentário copiado do template errado durante o desenvolvimento original do legado). Não é bug funcional, só comentário — corrigido no `fat_desempenho_producao.py` novo com a justificativa real (UNION ALL de 4 naturezas sem chave única comum, mesmo motivo do `FAT_FATURAMENTO`).
 
-**Próximo passo**: rodar `comercial.bronze.extrator` (dependência) + `producao.bronze.extrator` na VM, depois as 7 tabelas da Prata (`producao.prata.dim_produto_producao`, `dim_centro_custo_producao`, `dim_custo_padrao_producao`, `fat_paradas_producao`, `fat_custo_cc_producao`, `fat_utilizacao_meta_producao`, `fat_desempenho_producao`), e por fim as 7 conferências correspondentes em `conferencias.dw_prata` (precisa do `GRANT SELECT` em cada tabela legada equivalente, se ainda não existir).
+### Bug encontrado e corrigido: conferência de `FAT_DESEMPENHO_PRODUCAO` cortando pelo campo errado (23/07/2026)
+
+Primeira rodada na VM: 356.198 linhas na Prata, conferência acusando **77 "só na Prata"** e **432 "só no legado"** (contagem com corte: 356.553 no legado x 356.198 na Prata).
+
+Investigando as amostras (a conferência lista as colunas em ordem alfabética via `ALL_TAB_COLUMNS`, não a ordem do `SELECT` — precisa mapear com cuidado), encontradas **duas causas distintas, nenhuma delas bug na extração**:
+
+1. **As 432 "só no legado" eram bug na CONFERÊNCIA, não na Prata.** A query de extração corta cada bloco (`TIPTAB`) por um campo diferente — `DTRINI` (início real da OP) no bloco 1, `DATMOV` no bloco 2, e um campo já equivalente ao `DATREA` de saída nos blocos 3/4. A conferência, porém, filtrava o legado só por `DATREA >= 2021` pros 4 blocos de uma vez. Exemplo confirmado: uma linha com `DTRINI = 07/12/2020` (antes do corte — corretamente excluída da Prata) mas `DATREA = 05/01/2021` (depois do corte) — a conferência incluía essa linha no lado do legado por olhar `DATREA`, gerando divergência falsa. **Corrigido** em `conferencia_fat_desempenho_producao.py`: o filtro do legado agora corta por `TIPTAB` (`DTRINI` pro bloco 1, `DATMOV` pro bloco 2, `DATREA` pros blocos 3/4) — mesmo campo que a extração usa em cada bloco.
+
+2. **As 77 "só na Prata" não são bug — é defasagem de atualização entre legado e Prata.** Todas as 10 amostras verificadas tinham `DTRINI`/`DATREA` em 2026 (ex.: OP iniciada 01/07/2026, 13/07/2026, 19/06/2026) — apontamentos bem recentes. A Prata foi extraída na hora (dado fresco da Bronze); o legado roda no próprio agendamento dele e provavelmente ainda não tinha recarregado essas OPs novas no momento da conferência. Mesmo padrão do achado 2 do `FAT_RASTREABILIDADE` (resíduo de não-atomicidade) — não precisa de correção de código, só rodar a conferência de novo com os dois lados atualizados próximos no tempo pra confirmar que o resíduo fecha.
+
+O "só na Prata" (2) pode variar um pouco de execução pra execução — isso é esperado, não é sinal de erro, contanto que as linhas residuais sejam sempre de datas bem recentes (verificar `DTRINI`/`DATREA` da amostra antes de assumir bug).
+
+### Bug encontrado e corrigido: `E900COP` (Bronze) usava a coluna errada como gatilho incremental (23/07/2026)
+
+Depois da correção acima, o reteste na VM (com `producao.bronze.extrator` já rodado, inclusive com `--sweep-orfaos`) ainda mostrava **226 "só no legado"** — o mesmo número de antes, sem nenhuma melhora. Investigando as amostras, todas eram do mesmo padrão: a mesma OP, com `SITORP='A'`/`DTRFIM=1900-12-31` (sentinela "ainda aberta") na Prata, mas `SITORP='F'`/`DTRFIM=<data real>` no legado — ou seja, a OP já tinha terminado no Sapiens, mas a Bronze continuava mostrando ela como aberta.
+
+Diagnóstico direto na VM (consulta em `DW_BRONZE.E900COP` para as OPs divergentes) confirmou a causa: o catálogo (`producao/bronze/tabelas.py`) usava `DATGER` (data de **geração/planejamento** da OP) como coluna de controle do incremental de 60 dias. Só que `DATGER` pode ficar bem mais antiga que `DTRINI` (início real da execução) — 3 casos confirmados com `DATGER` entre 77 e 288 dias atrás, mesmo com `DTRINI` recente (ex.: OP gerada em 07/05/2026 mas só começou a rodar em 19/06/2026). Como o incremental só revisita linhas com `DATGER >= SYSDATE - 60`, qualquer OP gerada há mais de 60 dias nunca mais tem `SITORP`/`DTRFIM` resincronizados na Bronze, mesmo que continue mudando de status ativamente no Sapiens — a Bronze fica com o cabeçalho da OP congelado no estado de quando ela ainda estava dentro da janela.
+
+Consultado `ALL_TAB_COLUMNS` de `SAPIENS.E900COP`: **não existe nenhuma coluna real de última alteração** — só `DATGER` (geração), `USUGER` (usuário, número), `ROTALT`/`VERMOD` (códigos de rota/versão, não datas). Sem alternativa melhor, `E900COP` virou `coluna_data: None` no catálogo — mesmo critério já usado nas outras tabelas desta área sem auditoria confiável (ver topo de `producao/bronze/tabelas.py`). Efeito prático: o motor genérico da Bronze (`producao/bronze/extrator.py`, função `montar_query()`) para de aplicar qualquer filtro de data nessa tabela, em qualquer carga — toda OP da empresa 1 é reenviada pro `upsert()` a cada ciclo, garantindo que `SITORP`/`DTRFIM` (e qualquer outro campo do cabeçalho) sempre reflitam o estado atual do Sapiens, não importa há quanto tempo a OP foi gerada. Custo aceito: `E900COP` passa a ser extraída por completo a cada ciclo (like as outras 8 tabelas sem coluna de auditoria), mas essa tabela é só o cabeçalho de OP (1 linha por OP), não o grão pesado (`E900EOQ`) — volume não deve ser um problema.
+
+**Lição geral, vale pra qualquer área futura**: uma coluna de "data de criação/geração" não é o mesmo que "data de última alteração" -- uma linha pode ser criada uma vez e sofrer updates de status por meses depois, sem que a coluna de criação mude. Usar esse tipo de coluna como gatilho de incremental faz a Bronze congelar o estado de qualquer registro cuja criação já saiu da janela, mesmo que ele continue mudando de verdade na origem. Antes de declarar `coluna_data` no catálogo de qualquer tabela, vale conferir com o time de negócio (ou via `ALL_TAB_COLUMNS`) se a coluna escolhida reflete alteração, não só criação.
+
+Depois desse fix, `producao.bronze.extrator` passou a recapturar o estado atual de todas as OPs em todo ciclo (sem filtro de data pra `E900COP`) — o "só no legado" caiu de 226 pra perto de 0, sobrando só o resíduo natural de defasagem de horário entre execuções (ver achado seguinte).
+
+### Achado adicional: defasagem de horário não é "aceitável só porque é timing" -- corrigido com janela de estabilização (23/07/2026)
+
+Depois do fix do `E900COP`, o resíduo caiu de 270 pra 173 divergências, mas não zerou. Testado deliberadamente: pausar o orquestrador do legado (congelando ele às 10h25) e rodar a Prata alguns minutos depois (10h30-10h33) -- **o resíduo não caiu, piorou** (173 → 182) e trocou de linhas (sempre as mais recentes: `DATMOV`/`DATREA` de hoje e ontem). Investigado e confirmado: pausar o legado não pausa a fábrica -- o Sapiens continua recebendo lançamentos o tempo todo, então o intervalo entre o congelamento do legado (10h25) e a extração da Prata (10h30-33) por si só já gera novas linhas que só um lado tem. É comum, além disso, um apontador lançar hoje um consumo/apontamento com data de negócio de alguns dias atrás (lançamento atrasado) -- então mesmo linhas com `DATMOV` de dias antes do teste podem ser recentes NO BANCO.
+
+**Importante**: isso não foi tratado como "resíduo aceitável" -- foi cobrado explicitamente pelo usuário ("não existe aceitar divergência, os dados precisam bater"). A resposta não é relaxar o padrão, é ajustar ONDE a comparação é feita: parar de comparar a ponta mais recente, que nunca vai ficar parada em nenhum sistema (nem no legado, se comparado contra ele mesmo em dois instantes diferentes).
+
+**Corrigido em `conferencia_fat_desempenho_producao.py`**: adicionada uma "janela de estabilização" de `JANELA_ESTABILIZACAO_DIAS = 2` dias -- a comparação (só a comparação; a tabela em si continua completa, sem esse filtro, pro Power BI) passa a ignorar os últimos 2 dias dos DOIS lados, usando o mesmo campo por `TIPTAB` já usado no corte de 2021 (`DTRINI`/`DATMOV`/`DATREA`, ver seção "CORTE DE DATA" no docstring do arquivo). Depois desse prazo, qualquer lançamento atrasado já deve ter sido gravado nos dois lados -- se sobrar divergência de um período mais antigo que a janela, aí sim é bug de lógica, não timing.
+
+**Consequência pra validação desta e futuras tabelas com corte de data**: uma tabela que compara um sistema "sempre vivo" (legado, rodando a cada 15 min direto no Sapiens) contra uma foto pontual (Prata, `full_reload` rodado manualmente) nunca vai bater 100% se a comparação incluir os dias mais recentes -- não interessa quão perto no tempo as duas execuções rodem. A validação de verdade é: **o histórico já assentado bate?** Se sim, a tabela está correta; a ponta viva é sempre ruído esperado de qualquer pipeline incremental/near-real-time, resolvido só com a passagem do tempo (o próprio ciclo seguinte do orquestrador, quando existir, vai fechar essa ponta sozinho).
+
+
+### Bug encontrado e corrigido: janela de estabilização usava campo de OP, não campo de linha, no TIPTAB=1 (23/07/2026)
+
+Depois da janela de estabilização (achado anterior), o resíduo caiu de 173 pra 159 -- mas o usuário questionou um caso específico que não parecia timing: `NUMORP=34498`, bloco DESEMPENHO, `QTDPRV` vindo `40000` na Prata contra `20000` no legado -- exatamente o DOBRO, e `TMPPRV` (que depende de `QTDPRV`) também proporcionalmente maior. Valor previsto de OP é fixo, não "cresce com o tempo" -- não parecia timing, parecia duplicação de verdade.
+
+Investigado com consulta direta comparando `DW_BRONZE.E900EOQ`/`E900QDO` contra `SAPIENS` pra essa OP exata: **os dados são idênticos nos dois lados**, sem nenhuma duplicação na Bronze. Mas a origem (`E900EOQ`) tinha 2 apontamentos REAIS no mesmo dia (`DATREA=22/07/2026`, `SEQEOQ=4` e `SEQEOQ=6`, `QTDRE1=1207` e `659`) -- 2 leituras distintas e válidas do mesmo estágio na mesma data. Como o `GROUP BY` da query (idêntica nos dois lados) agrupa por `CODEMP+DATREA+NUMORP+CODETG+CODCRE+...` (sem `SEQEOQ`), essas 2 linhas caem no MESMO grupo -- e o `JOIN` com `E900QDO` (que só tem 1 linha, `QTDPRV=20000`, fixa por OP) se repete uma vez por linha do grupo antes do `SUM`, dobrando pra `40000`. **Esse comportamento é idêntico nos dois lados, sempre que as 2 linhas estiverem presentes juntas no momento do cálculo** -- não é um bug de lógica de negócio, é fan-out inerente ao desenho da query (mesmo already-conhecido nesta migração, ver achado do `CODOPR` em `DIM_CENTRO_CUSTO_PRODUCAO`).
+
+**Causa raiz de aparecer só na Prata**: o `SEQEOQ=6` (2ª leitura, lançada há pouco) ainda não existia -- ou o legado ainda não tinha recalculado essa linha desde que ela apareceu -- na última vez que o legado rodou. A Prata, extraída depois, já capturou as 2 linhas juntas. Isso DEVERIA ter sido pego pela janela de estabilização (2 dias) -- só que o teto da janela pro `TIPTAB=1` usava `DTRINI` (início da OP, 17/07 -- já "velho" há mais de 2 dias) em vez de `DATREA` (data do apontamento em si, 22/07 -- ainda recente). `DTRINI` é atributo da OP inteira (não muda por linha); uma OP pode ter começado há semanas e continuar ganhando apontamentos novos todo dia -- usar `DTRINI` como critério de "already assentado" deixava passar linhas com `DATREA` de ontem/hoje, achando que já eram estáveis só porque a OP em si era antiga.
+
+**Corrigido** em `conferencia_fat_desempenho_producao.py`: o teto da janela de estabilização passou a usar `DATREA` (não `DTRINI`) pro `TIPTAB=1` -- `DATMOV` (`TIPTAB=2`) e `DATREA` (`TIPTAB=3`/`4`) já estavam certos desde o início (já eram campos por linha, não por OP). O corte de baixo (`>= 01/01/2021`) continua em `DTRINI` pro `TIPTAB=1` -- esse sim precisa ser o campo da OP, porque é o que a extração usa pra decidir se a OP entra no recorte.
+
+**Lição geral**: corte de inclusão (linha entra ou não no recorte histórico) e janela de estabilização (linha já assentou ou ainda pode mudar) são perguntas DIFERENTES e podem exigir campos diferentes, mesmo dentro do mesmo bloco -- não basta reaproveitar cegamente o mesmo campo do corte pra tudo.
+
+### Bug encontrado e corrigido: corte de negócio (2021) vazou pra dentro de uma busca técnica no bloco CONSUMO (23/07/2026)
+
+Resolvendo a "investigação em aberto" (abaixo, mantida como registro histórico): as 4 linhas de `CONSUMO` com `DATMOV` logo após 01/01/2021 (05/01/2021, 04/02/2021) apareciam "só na Prata" com `CC_EXE`/`DATREA`/`QTDTOP` nulos. A causa raiz não era ausência de dado (já tinha sido descartado -- Bronze e Sapiens batiam 100% pra `E900EOQ`) -- era um **segundo bug**, numa parte da query que eu não tinha examinado na 1ª investigação.
+
+O bloco `TIPTAB=2` calcula `DATREA` com um fallback: se não achar apontamento na data EXATA do movimento, uma 2ª subconsulta procura "o apontamento mais próximo dessa OP" (sem exigir data exata). As duas subconsultas tinham um filtro de janela **próprio**, historicamente igual ao corte geral do legado (`2018`, porque lá os dois eram o mesmo valor por coincidência). Ao migrar o corte geral pra `2021` (`DATA_CORTE_PRODUCAO`), esse filtro interno foi trocado junto -- sem essa ser a intenção. Registros de `CONSUMO` de 05/01/2021 e 04/02/2021 cujo apontamento de referência real estava em dezembro/2020 (antes do novo corte) deixaram de ser encontrados pela busca, porque a busca agora só via "a partir de 2021" -- resultando em `DATREA` nulo (e, em cascata, `CC_EXE`/`QTDTOP` nulos, que dependem de `DATREA`).
+
+**Corrigido**: `DATA_CORTE_PRODUCAO` (2021) continua decidindo quais REGISTROS entram no histórico (`WHERE` externo dos 4 blocos, sem mudança). Criada `DATA_MINIMA_APONTAMENTO_CONSUMO` (2018, nova constante em `producao/config/settings.py`) usada só nas 2 subconsultas de fallback do bloco CONSUMO -- mesmo valor que o legado sempre usou aí (`DATA_INICIO_HISTORICO`), preservando o alcance original da busca técnica, desacoplado do corte de negócio.
+
+**Lição geral, já registrada antes de forma parecida mas vale reforçar**: ao trocar um valor de corte de data que aparece em VÁRIOS lugares da mesma query, conferir se todos os usos são de fato a MESMA decisão de negócio -- um valor pode se repetir só porque, no legado, coincidia por acaso (mesmo corte geral reaproveitado em 2 propósitos diferentes: "que dado eu guardo" x "onde eu procuro uma referência técnica"), não porque representam a mesma coisa.
+
+### Bug encontrado e corrigido: janela de estabilização não cobria agregados de MÊS CORRENTE (23/07/2026)
+
+Depois da correção do teto `DATREA`/`DTRINI` (achado anterior), sobrou um caso que o usuário identificou com uma investigação própria (comparando valores lado a lado): `QTDTOP` de uma linha de `CONSUMO` com `DATMOV=17/07/2026` (10 dias antes do teste, já fora da janela de 2 dias) continuava divergindo -- `2506` na Prata x `1847` no legado.
+
+Causa: `QTDTOP` (`fat_desempenho_producao.py`, bloco CONSUMO) é uma soma de **todos os apontamentos do mesmo mês/ano** daquele estágio (casamento por `TO_CHAR(DATREA,'MM/YYYY')`, não por dia exato) -- não é um valor "daquela linha", é um total corrente do mês inteiro. Enquanto o mês não fecha, qualquer apontamento novo lançado em QUALQUER dia daquele mês muda `QTDTOP` de TODAS as linhas de CONSUMO daquele mês/estágio -- inclusive linhas com `DATMOV` de 1-2 semanas atrás, que já pareciam "assentadas" pelo critério de dia. A janela de 2 dias não cobre isso, porque o problema não é a idade da linha, é o mês ainda estar em aberto.
+
+**Corrigido**: o teto da janela de estabilização pro `TIPTAB=2` deixou de usar "últimos N dias" e passou a excluir o **mês corrente inteiro** (`DATMOV < TRUNC(SYSDATE, 'MM')`) -- só compara `CONSUMO` de meses já fechados. `TIPTAB=1`/`3`/`4` continuam com a janela de N dias (não têm esse tipo de agregado mensal).
+
+**Lição geral**: a "janela de estabilização" certa depende do que cada campo realmente representa -- um campo por linha (apontamento específico) estabiliza em poucos dias; um campo agregado por período (mês, nesse caso) só estabiliza quando o período fecha. Não dá pra usar uma janela única pra tudo só porque parece mais simples.
+
+### Investigação em aberto (histórico): 4 linhas de 2021 sem apontamento correlato -- resolvida no achado acima
+
+Durante a investigação, 4 linhas do bloco CONSUMO (`DATMOV` em 05/01/2021 e 04/02/2021) apareceram "só na Prata" com `CC_EXE`/`DATREA`/`QTDTOP` nulos -- a subconsulta correlacionada que busca o apontamento (`E900EOQ`) casando `CODORI+NUMORP+CODETG+DATREA` não encontrava nada. Investigado: a consulta direta em `SAPIENS.E900EOQ` (não só `DW_BRONZE`) pras mesmas chaves também veio vazia -- descartando gap de cobertura da Bronze. **Causa raiz encontrada e corrigida no achado acima** (corte de negócio vazando pra dentro do fallback de busca do `DATREA`). Confirmado na VM (23/07/2026): reexecutado, as 4 linhas sumiram do resíduo.
+
+### Achado adicional: registros de `CODEMP≠1` no legado, sem filtro na query (23/07/2026)
+
+Depois dos 2 fixes acima, sobrou um resíduo com um padrão novo: várias linhas "só no legado" com `CODEMP=50` (produto `SIMCRD`, datas espalhadas de 2022 a 2025). Investigado: **nenhum dos 4 blocos de `fat_desempenho_producao.py`/`vbidesempenho.py` filtra `CODEMP=1` explicitamente na query** -- isso nunca foi problema pra Prata porque a Bronze já filtra `CODEMP=1` na origem (`producao/bronze/tabelas.py`, `tem_codemp=True` em todas as 16 tabelas da área). O legado, rodando direto no Sapiens sem esse filtro embutido na própria query, acumulou ao longo do tempo registros de outras empresas (`CODEMP=50`) que nunca deveriam ter entrado -- viola a Regra 6 do projeto ("CODEMP=1 sempre, sem exceção na Produção").
+
+**Não é um bug de lógica de negócio pra corrigir na extração** (a Prata já está certa -- só tem `CODEMP=1`, por construção da Bronze) -- é ruído fora de escopo que só aparece na comparação porque a conferência lia o legado por inteiro, sem esse filtro. **Corrigido em `conferencia_fat_desempenho_producao.py`**: adicionado `CODEMP = 1` no filtro do lado do legado.
+
+Confirmado na VM (23/07/2026): reexecutada a conferência com os 3 fixes (janela de mês corrente + `CODEMP=1` + achados anteriores) -- caiu de 146 pra **1 única divergência** em 353.645 linhas.
+
+### Bug encontrado e corrigido: corte de `TIPTAB=3` usa operador diferente do `TIPTAB=4` (23/07/2026)
+
+Depois de todos os fixes acima, sobrou 1 linha: `PARADAS` (`TIPTAB=3`) com `DATREA=01/01/2021` exato -- o primeiro dia do corte. A extração usa `T0.DATMPR > corte` (**estritamente maior**, exclui o dia exato) no bloco PARADAS -- conferido no legado (`vbidesempenho.py`) que usa o mesmo `>` estrito ali, sempre foi assim, não é comportamento introduzido pela migração. Já o bloco CUSTO_CC (`TIPTAB=4`) usa `T2.DATINI >= corte` (inclusive). A conferência tratava os dois blocos com o mesmo operador (`>=`) no corte de baixo -- reinserindo artificialmente essa linha de fronteira no lado do legado, quando ela nunca deveria estar no recorte de nenhum dos dois lados.
+
+**Corrigido**: `filtro_por_tiptab()` generalizado pra aceitar um dicionário `{tiptab: condição}` (em vez de 1 operador fixo pra vários blocos), permitindo `>` só pro TIPTAB=3 e `>=` pro TIPTAB=4 -- mesmos operadores da extração.
+
+**Confirmado na VM (23/07/2026): 0 divergências dos dois lados** (353.645 = 353.645, dentro do corte e da janela estável). `FAT_DESEMPENHO_PRODUCAO` considerada validada -- fato central da área, o mais complexo dos 7, fechado depois de 6 achados (E900COP/DATGER, corte vazando pro fallback de CONSUMO, teto da janela por OP x por linha, mês corrente do QTDTOP, CODEMP≠1 no legado, operador do TIPTAB=3).
+
+**Lição geral, mesma categoria das anteriores**: ao generalizar um corte de data "pro mesmo grupo de blocos", conferir se cada bloco do grupo usa mesmo campo **e mesmo operador** na extração -- dois blocos parecidos (3 e 4, ambos mapeando direto pra `DATREA`) podem ainda divergir num detalhe (`>` x `>=`) fácil de não notar.
+
+**Produção encerrada (23/07/2026).** As 7 tabelas da área (3 dimensões + 4 fatos) validadas -- todas as conferências batendo (dentro do corte de `01/01/2021` e, na `FAT_DESEMPENHO_PRODUCAO`, também da janela de estabilização). Confirmado pelo usuário na VM: `FAT_PARADAS_PRODUCAO`, `FAT_CUSTO_CC_PRODUCAO` e `FAT_UTILIZACAO_META_PRODUCAO` batendo sem achados adicionais além do corte de data já esperado; `DIM_PRODUTO_PRODUCAO`, `DIM_CENTRO_CUSTO_PRODUCAO` e `FAT_DESEMPENHO_PRODUCAO` com achados próprios, documentados em cada seção acima. Mesmo critério de encerramento já usado no Comercial, OPEX e Rastreabilidade -- quinta área da migração fechada.
 
 ---
 

@@ -23,14 +23,49 @@ TABELAS = [
         "tipo_carga": "upsert",
         "chaves_merge": ["CODEMP", "CODPRO"],
         "corte_data": None,
-        "status": "PRONTA -- validar na VM (extração + conferencia_dim_produto_producao.py)",
+        "status": "VALIDADA (22/07/2026, confirmado na VM em 23/07/2026) -- resíduo de CODDER corrigido (desempate amarrado ao legado), conferência batendo 0/0, ver observação",
         "observacao": (
             "Sufixo _PRODUCAO -- já existe DIM_PRODUTO no Comercial, com "
             "campos completamente diferentes (esta tem CODORI, CODAGE, "
             "CURABC, DEPPAD, específicos de manufatura). Depende de "
             "E075PRO/E075DER/E013AGP/E012FAM, compartilhadas com o "
             "Comercial (Regra 8 -- precisa de comercial.bronze.extrator "
-            "em dia)."
+            "em dia). BUG CORRIGIDO (22/07/2026, achado 1): 512 linhas "
+            "'só na Prata' eram órfãos reais em E075PRO (deletados no "
+            "Sapiens, nunca varridos da Bronze -- coluna_data incremental "
+            "não pega exclusão, só --sweep-orfaos pega). Resolvido "
+            "rodando comercial.bronze.extrator --sweep-orfaos + DROP "
+            "TABLE + recarga (upsert nunca remove linha sozinho). "
+            "BUG CORRIGIDO (22/07/2026, achado 2): ~96 produtos têm mais "
+            "de 1 linha em E075DER (múltiplas derivações reais, ex.: "
+            "CODPRO=4K01 tem CODDER='B'/'N'/'U', todas com SITDER='A' -- "
+            "não é histórico de status, são registros comerciais "
+            "coexistentes e válidos, sem nenhuma coluna que indique qual "
+            "é 'a' correta). Como chaves_merge é só [CODEMP, CODPRO] "
+            "(mesma do legado), o MERGE só guarda 1 CODDER por produto -- "
+            "e SEM critério de desempate de verdade, a escolha dependia "
+            "só da ordem física com que o Oracle devolvia as linhas do "
+            "JOIN, que MUDA entre Sapiens (legado) e Bronze (Prata) "
+            "mesmo com dados idênticos -- 96 divergências na conferência, "
+            "confirmado por amostragem que não segue nenhum padrão "
+            "alfabético/coluna (às vezes 'ganha' o maior CODDER, às "
+            "vezes o menor, sem consistência). "
+            "DECISÃO (22/07/2026, confirmada com o usuário): NÃO mudar a "
+            "granularidade pra CODPRO+CODDER (motivo original ainda vale "
+            "-- Power BI/FAT_DESEMPENHO_PRODUCAO relacionam por CODPRO "
+            "só, mudar a chave causaria fan-out). Em vez disso, "
+            "desempate passou a preferir explicitamente o CODDER que já "
+            "está gravado hoje em BIAQUARIO.USU_VBIAPROD_PRODUTO (LEFT "
+            "JOIN só pra esse fim, coluna PRIORIDADE_LEGADO removida do "
+            "df antes da carga -- nunca vira coluna física). Fallback "
+            "determinístico (CODDER ASC) cobre produto sem linha no "
+            "legado. LIMITAÇÃO CONHECIDA: esse amarramento só funciona "
+            "enquanto USU_VBIAPROD_PRODUTO existir -- quando o legado for "
+            "desligado, a ambiguidade volta e precisa de nova decisão "
+            "(ex.: revisitar granularidade CODPRO+CODDER). Ver "
+            "dw_aquario/doc_nova_arquitetura.md, seção 'Produção', e o "
+            "docstring de dim_produto_producao.py para o histórico "
+            "completo."
         ),
     },
     {

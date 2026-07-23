@@ -53,6 +53,39 @@ DESEMPENHO). Mantidos exatamente como estavam -- ver comentários inline.
 TMPLIQ permanece NULL -- EW909MVO não existe neste ambiente
 Sapiens/Senior (mesma nota do legado; tabela nem chegou a entrar no
 catálogo da Bronze, ver producao/bronze/tabelas.py).
+
+----------------------------------------------------------------------
+BUG CORRIGIDO (23/07/2026): corte de negócio vazou pra dentro de uma
+busca técnica no bloco CONSUMO
+----------------------------------------------------------------------
+O bloco TIPTAB=2 (CONSUMO) calcula DATREA com um fallback: se não achar
+apontamento (E900EOQ) na data EXATA do movimento, procura "o apontamento
+mais próximo dessa OP" numa segunda subconsulta, sem exigir data exata.
+Essas 2 subconsultas tinham um filtro de janela PRÓPRIO, historicamente
+igual ao corte geral (2018 no legado, porque lá os dois eram o mesmo
+valor por coincidência) -- ao trocar o corte geral pra 2021
+(DATA_CORTE_PRODUCAO), esse filtro interno foi trocado junto, sem querer.
+
+Consequência: registros de CONSUMO logo após 01/01/2021 (ex.: 05/01/2021)
+que só tinham apontamento de referência em dezembro/2020 passaram a
+achar NULL na Prata (a busca não enxergava nada antes de 2021), enquanto
+o legado (que usa DATA_INICIO_HISTORICO=2018 nesse mesmo ponto) achava o
+valor certo -- 4 divergências confirmadas na conferência, todas com essa
+assinatura (DATREA nulo na Prata, preenchido no legado, mesma
+CODORI+NUMORP+CODETG).
+
+Corrigido separando as duas janelas: DATA_CORTE_PRODUCAO (2021) continua
+decidindo quais REGISTROS entram no histórico (WHERE externo dos 4
+blocos); DATA_MINIMA_APONTAMENTO_CONSUMO (2018, nova constante em
+config/settings.py) passou a ser usada só nessas 2 subconsultas -- mesmo
+valor que o legado sempre usou aí, preservando o alcance original da
+busca técnica. Ver settings.py pro detalhe completo.
+
+LIÇÃO GERAL: ao trocar um valor de corte de data que aparece em vários
+lugares da mesma query, conferir se TODOS os usos são realmente a mesma
+decisão de negócio -- um valor pode aparecer repetido só porque, no
+legado, coincidia por acaso (mesmo corte geral usado em 2 propósitos
+diferentes), não porque são a mesma coisa.
 """
 
 # ----- IMPORTS -----
@@ -65,7 +98,12 @@ from sqlalchemy import text
 from core.db import get_engine_prata
 from core.dtype_map import build_dtype_map
 from core.loader import full_reload
-from producao.config.settings import DATA_CORTE_PRODUCAO, schema_bronze, schema_prata
+from producao.config.settings import (
+    DATA_CORTE_PRODUCAO,
+    DATA_MINIMA_APONTAMENTO_CONSUMO,
+    schema_bronze,
+    schema_prata,
+)
 
 # ----- CONFIGURAÇÃO DA TABELA DESTINO -----
 
@@ -207,6 +245,9 @@ SELECT
     'CONSUMO'                                                           AS DESTAB,
     T0.CODEMP,
     T0.DATMOV,
+    -- Fallback de busca do apontamento de referência -- janela TÉCNICA
+    -- (DATA_MINIMA_APONTAMENTO_CONSUMO, 2018), NÃO a de negócio (2021).
+    -- Ver settings.py, "BUG CORRIGIDO (23/07/2026)".
     MAX(NVL(
         (SELECT MAX(X0.DATREA)
            FROM {schema_bronze}.E900EOQ X0
@@ -214,7 +255,7 @@ SELECT
             AND X0.CODORI = T0.ORIORP
             AND X0.NUMORP = T0.NUMDOC
             AND X0.DATREA = T0.DATMOV
-            AND X0.DATREA >= TO_DATE('{DATA_CORTE_PRODUCAO}', 'DD/MM/YYYY')
+            AND X0.DATREA >= TO_DATE('{DATA_MINIMA_APONTAMENTO_CONSUMO}', 'DD/MM/YYYY')
             AND X0.CODETG NOT IN ('99', '50')
             AND X0.HORREA > 0),
         (SELECT MAX(X0.DATREA)
@@ -222,7 +263,7 @@ SELECT
           WHERE X0.CODEMP = T0.CODEMP
             AND X0.CODORI = T0.ORIORP
             AND X0.NUMORP = T0.NUMDOC
-            AND X0.DATREA >= TO_DATE('{DATA_CORTE_PRODUCAO}', 'DD/MM/YYYY')
+            AND X0.DATREA >= TO_DATE('{DATA_MINIMA_APONTAMENTO_CONSUMO}', 'DD/MM/YYYY')
             AND X0.CODETG NOT IN ('99', '50')
             AND X0.HORREA > 0)
     ))                                                                  AS DATREA,
